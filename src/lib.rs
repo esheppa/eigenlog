@@ -222,10 +222,10 @@ mod client {
             let DataSender { receiver, flush_request, api_config, cache_limit, cache, host } = self;
             
             let mut headers = header::HeaderMap::new();
-            headers.insert(header::HeaderName::from_static("X-API-KEY"), header::HeaderValue::from_str(&api_config.api_key)?);
+            headers.insert(header::HeaderName::from_static(API_KEY_HEADER), header::HeaderValue::from_str(&api_config.api_key)?);
             let client = reqwest::ClientBuilder::new()
-            .default_headers(headers)
-            .build()?;
+                .default_headers(headers)
+                .build()?;
             
             let mut tasks = futures::stream::FuturesUnordered::new();
 
@@ -403,7 +403,7 @@ mod server {
         todo!()
     }
 
-    fn create_server(db: sled::Db, api_keys: Vec<String>) -> warp::Server<impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection>> {
+    pub fn create_server(db: sled::Db, api_keys: Vec<String>) -> warp::Server<impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection>> {
     // endpoint is /logbatch/<host>/<level>
     //
     // new tree for each host/level combination

@@ -4,11 +4,6 @@ version = "0.1.0"
 authors = ["Eric Sheppard <eric@sheppard.cloud>"]
 edition = "2018"
 
-[[bin]]
-name = "server"
-path = "src/server.rs"
-required-features = ["server"]
-
 [dependencies]
 bincode = "1.3"
 once_cell = "1.7"
