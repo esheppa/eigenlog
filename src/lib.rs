@@ -26,7 +26,7 @@ impl<'a> From<&log::Record<'a>> for LogData {
     }
 }
 
-type LogBatch = collections::HashMap<ulid::Ulid, LogData>;
+type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Host {
@@ -53,12 +53,15 @@ pub enum Error {
     #[error("Bincode: {0}")]
     Bincode(#[from] bincode::Error),
 
-    #[error("Missing entity with id: {0}")]
-    MissingEntity(ulid::Ulid),
-
+    #[error("Error sending flush response")]
+    FlushResponse(#[from] std::sync::mpsc::SendError<()>),
+    
     #[cfg(feature = "client")]
     #[error("Header: {0}")]
     Header(#[from] reqwest::header::InvalidHeaderValue),
+
+    #[error("Missing entity with id: {0}")]
+    MissingEntity(ulid::Ulid),
 
     #[cfg(feature = "client")]
     #[error("Reqwest: {0}")]
@@ -67,6 +70,9 @@ pub enum Error {
     #[cfg(feature = "server")]
     #[error("Sled: {0}")]
     Sled(#[from] sled::Error),
+    
+    #[error("Ulid: {0}")]
+    Ulid(#[from] ulid::MonotonicError),
 
     #[error("Uuid: {0}")]
     Uuid(#[from] uuid::Error),
@@ -84,11 +90,11 @@ pub use client::*;
 mod client {
 
     use tokio::sync::mpsc;
-    use super::*;
     use futures::stream::StreamExt;
     use reqwest::header;
+    use super::*;
 
-    struct Client {
+    pub struct Client {
         // send a new log message
         sender: mpsc::UnboundedSender<(log::Level, LogData)>,
 
@@ -96,25 +102,25 @@ mod client {
         // innser sender is sync as this has to be handled from sync context
         flush_requester: mpsc::UnboundedSender<std::sync::mpsc::SyncSender<()>>,
 
-        panic_on_flush_failure: bool,
+        on_result: Box<dyn Fn(result::Result<(),()>) + Sync + Send>,
 
         level: log::Level,
     }
 
-    struct ApiConfig {
-        base_url: String,
-        api_key: String,
+    pub struct ApiConfig {
+        pub base_url: String,
+        pub api_key: String,
     }
 
     /// How many messages of a given level
     /// that we will stack up in the cache
     /// before sending a batch to the server
-    struct CacheLimit {
-        error: usize,
-        warn: usize,
-        info: usize,
-        debug: usize,
-        trace: usize,
+    pub struct CacheLimit {
+        pub error: usize,
+        pub warn: usize,
+        pub info: usize,
+        pub debug: usize,
+        pub trace: usize,
     }
 
     impl CacheLimit {
@@ -127,7 +133,7 @@ mod client {
                 log::Level::Error => self.error,
             }
         }
-        fn should_send(&self, level: log::Level, cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>) -> bool {
+        fn should_send(&self, level: log::Level, cache: &collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>) -> bool {
             let current_len = cache.get(&level).map(|d| d.len()).unwrap_or(0);
             self.get_limit(level) <= current_len + 1
         }
@@ -146,7 +152,12 @@ mod client {
     }
 
     impl Client {
-        fn new(panic_on_flush_failure: bool, api_config: ApiConfig, host: Host, level: log::Level, cache_limit: CacheLimit) -> (Client, DataSender) {
+        fn on_result<T, E>(&self, result: result::Result<T, E>) 
+        {
+            let func = &self.on_result;
+            func(result.map_err(|_| ()).map(|_| ()))
+        }
+        pub fn new(on_result: Box<dyn Fn(result::Result<(), ()>) + Sync + Send>, api_config: ApiConfig, host: Host, level: log::Level, cache_limit: CacheLimit) -> (Client, DataSender) {
             let (tx1, rx1) = mpsc::unbounded_channel();
             let (tx2, rx2) = mpsc::unbounded_channel();
 
@@ -154,14 +165,14 @@ mod client {
                 Client {
                     sender: tx1,
                     flush_requester: tx2,
-                    panic_on_flush_failure,
+                    on_result,
                     level,
                 },
                 DataSender {
                     receiver: rx1,
                     flush_request: rx2,
                     api_config,
-                    level,
+                    host,
                     cache_limit,
                     cache: Default::default(),
                 },
@@ -169,61 +180,82 @@ mod client {
         }
     }
 
-    struct DataSender {
+    pub struct DataSender {
         receiver: mpsc::UnboundedReceiver<(log::Level, LogData)>,
 
         flush_request: mpsc::UnboundedReceiver<std::sync::mpsc::SyncSender<()>>,
 
         api_config: ApiConfig,
 
-        level: log::Level,
+        host: Host,
 
         cache_limit: CacheLimit,
 
         cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
     }
 
-    async fn send_batch(client: &reqwest::Client, config: &ApiConfig, level: log::Level, batch: impl Iterator<Item=(ulid::Ulid, LogData)>) -> result::Result<(), Error> {
-
+    async fn send_batch(client: &reqwest::Client, config: &ApiConfig, host: &Host, level: log::Level, batch: LogBatch) -> result::Result<(), Error> {
+        let url = format!("{base}/submit/{host}/{level}", base = config.base_url, host = host.name, level = level.to_string().to_lowercase());
+        let batch = bincode::serialize(&batch)?;
+        client.post(url)
+            .body(batch)
+            .send().await?
+            .error_for_status()?;
         Ok(())
     }
 
     impl DataSender {
-        async fn run(&mut self) -> result::Result<(), Error> {
+
+        pub async fn run_forever<OnError>(mut self, mut func: OnError) 
+        where OnError: FnMut(Error),
+        {
+            loop {
+                if let Err(e) = self.run().await {
+                    func(e)
+                }
+            }
+        }
+
+        pub async fn run(&mut self) -> result::Result<(), Error> {
             // each time we recieve a new log message, check the size of the cache and send if required
 
-            let DataSender { receiver, flush_request, api_config, level, cache_limit, mut cache} = self;
-            let tasks = futures::stream::FuturesUnordered::new();
-
+            let DataSender { receiver, flush_request, api_config, cache_limit, cache, host } = self;
+            
             let mut headers = header::HeaderMap::new();
             headers.insert(header::HeaderName::from_static("X-API-KEY"), header::HeaderValue::from_str(&api_config.api_key)?);
             let client = reqwest::ClientBuilder::new()
-                .default_headers(headers)
-                .build()?;
+            .default_headers(headers)
+            .build()?;
+            
+            let mut tasks = futures::stream::FuturesUnordered::new();
 
             loop {
-                let log_data = self.receiver.recv();
-                let flush_req = self.flush_request.recv();
+                let log_data = receiver.recv();
+                let flush_req = flush_request.recv();
 
                 tokio::select! {
                     Some((level, data)) = log_data => {
-                        if cache_limit.should_send(level, cache) {
-                            
-                            cache.remove(&level)
-                                .map(IntoIterator::into_iterator)
-                                .unwrap_or_else(|| std::iter::empty())
-                                .chain((ulid::Ulid))
+                        if cache_limit.should_send(level, &cache) {
 
-                            tasks.push(send_batch(&client, &config, level, ))
+                            let mut generator = ulid::Generator::new();
+
+                            
+                            let mut batch = cache.remove(&level).unwrap_or_default();
+                            batch.insert(generator.generate()?, data);
+
+                            tasks.push(send_batch(&client, &api_config, &host, level, batch))
                         }
 
 
                     }
                     Some(sender) = flush_req => {
-
+                        for (level, batch) in cache.drain() {
+                            tasks.push(send_batch(&client, &api_config, &host, level, batch))
+                        }
+                        sender.send(())?;
                     }
                     Some(_) = tasks.next() => {
-
+                        // Do nothing. We must have this so that we drive the FuturesUnordered to completion, however.
                     }
                 }
             }
@@ -236,16 +268,15 @@ mod client {
             self.level >= metadata.level()
         }
         fn log(&self, record: &log::Record) {
-            self.sender.send((record.level(), record.into()));
+            let res = self.sender.send((record.level(), record.into()));
+            self.on_result(res);
         }
         fn flush(&self) {
             let (tx, rx) = std::sync::mpsc::sync_channel(0);
-            self.flush_requester.send(tx);
-            if let Err(e) =  rx.recv() {
-                if self.panic_on_flush_failure {
-                    panic!("Eigenlog: log::Log::flush failed due to {}", e)
-                }
-            }
+            let res = self.flush_requester.send(tx);
+            self.on_result(res);
+            let res = rx.recv();
+            self.on_result(res);
         }
     } 
 
