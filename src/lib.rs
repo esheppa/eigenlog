@@ -8,12 +8,13 @@
 
 use once_cell::sync as once_cell;
 use std::{collections, fmt, iter, result};
+use http::header;
 
 #[cfg(feature = "client")]
 pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
-#[cfg(feature = "subscriber")]
+#[cfg(any(feature = "remote-subscriber", feature = "local-subscriber"))]
 pub mod subscriber;
 
 cfg_if::cfg_if! {
@@ -23,18 +24,18 @@ cfg_if::cfg_if! {
 }
 
 cfg_if::cfg_if! {
-    if #[cfg(not(any(feature = "client", feature = "server", feature = "subscriber")))] {
+    if #[cfg(not(any(feature = "client", feature = "server", feature = "remote-subscriber", feature = "local-subscriber")))] {
         compile_error!("eigenlog: must select at least one of `client`, `server` or `subscriber`")
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(any(feature = "client", feature = "subscriber"))] {
-        use reqwest::header;
-    } else if #[cfg(feature = "server")] {
-        use warp::header;
-    }
-}
+// cfg_if::cfg_if! {
+//     if #[cfg(any(feature = "client", feature = "subscriber"))] {
+//         use reqwest::header;
+//     } else if #[cfg(feature = "server")] {
+//         use warp::header;
+//     }
+// }
 
 const API_KEY_HEADER: &str = "X-API-KEY";
 const APPLICATION_JSON: &str = "application/json";
@@ -73,17 +74,42 @@ pub enum SerializationFormat {
 
 impl SerializationFormat {
     fn header_value(&self) -> header::HeaderValue {
-        match self {
-            #[cfg(feautre = "bincode")]
-            SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
-            #[cfg(feature = "json")]
-            SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON), 
-            _ => unreachable!(),
+        cfg_if::cfg_if! {
+            if #[cfg(all(feature = "bincode", feature = "json"))] {
+                match self {
+                    SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
+                    SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON), 
+                }
+            } else if #[cfg(feature = "json")] {
+                header::HeaderValue::from_static(APPLICATION_JSON)
+            } else if #[cfg(feature = "bincode")] {
+                header::HeaderValue::from_static(OCTET_STREAM)
+            } else {
+                compile_error!("eigenlog: must select at least one of `json` and `bincode`")
+            }
+        }
+    }
+    fn serialize<T>(&self, t: T) -> Result<Vec<u8>> 
+    where T: serde::Serialize 
+    {
+        cfg_if::cfg_if! {
+            if #[cfg(all(feature = "bincode", feature = "json"))] {
+                match self {
+                    SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
+                    SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
+                }
+            } else if #[cfg(feature = "json")] {
+                Ok(serde_json::to_vec(&t)?)
+            } else if #[cfg(feature = "bincode")] {
+                Ok(bincode_crate::serialize(&t)?)
+            } else {
+                compile_error!("eigenlog: must select at least one of `json` and `bincode`")
+            }
         }
     }
 }
 
-#[cfg(any(feature = "client", feature = "subscriber"))]
+#[cfg(any(feature = "client", feature = "remote-subscriber"))]
 pub struct ApiConfig {
     pub base_url: String,
     pub api_key: String,
@@ -97,7 +123,6 @@ pub struct TreeName {
     level: Level,
 }
 
-#[cfg(any(feature = "client", feature = "subscriber"))]
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct QueryParams {
     /// will only return logs equal to or more significant than this level,
@@ -259,7 +284,7 @@ pub enum Error {
     #[error("Error sending flush response")]
     FlushResponse(#[from] std::sync::mpsc::SendError<()>),
 
-    #[cfg(any(feature = "client", feature = "subscriber"))]
+    #[cfg(any(feature = "client", feature = "remote-subscriber"))]
     #[error("Header: {0}")]
     Header(#[from] reqwest::header::InvalidHeaderValue),
 
@@ -272,11 +297,11 @@ pub enum Error {
     #[error("Missing entity with id: {0}")]
     MissingEntity(ulid::Ulid),
 
-    #[cfg(any(feature = "client", feature = "subscriber"))]
+    #[cfg(feature = "reqwest")]
     #[error("Reqwest: {0}")]
     Reqwest(#[from] reqwest::Error),
 
-    #[cfg(feature = "server")]
+    #[cfg(feature = "sled")]
     #[error("Sled: {0}")]
     Sled(#[from] sled::Error),
 

@@ -1,6 +1,11 @@
 use super::*;
+#[cfg(feature = "remote-subscriber")]
+
 use futures::stream::StreamExt;
+
+#[cfg(feature = "remote-subscriber")]
 use reqwest::header;
+
 use tokio::sync::mpsc;
 
 pub struct Subscriber {
@@ -63,8 +68,9 @@ impl Subscriber {
     fn on_result<T, E>(&self, result: result::Result<T, E>) {
         let func = &self.on_result;
         func(result.map_err(|_| ()).map(|_| ()))
-    }
-    pub fn new(
+    } 
+    #[cfg(feature = "remote-subscriber")]
+    pub fn new_remote(
         on_result: Box<dyn Fn(result::Result<(), ()>) + Sync + Send>,
         api_config: ApiConfig,
         host: Host,
@@ -93,8 +99,49 @@ impl Subscriber {
             },
         )
     }
+    #[cfg(feature = "local-subscriber")]
+    pub fn new_local(
+        on_result: Box<dyn Fn(result::Result<(), ()>) + Sync + Send>,
+        host: Host,
+        app: App,
+        level: log::Level,
+        db: sled::Db,
+    ) -> (Subscriber, DataSaver) {
+        let (tx1, rx1) = mpsc::unbounded_channel();
+        let (tx2, rx2) = mpsc::unbounded_channel();
+
+        (
+            Subscriber {
+                sender: tx1,
+                flush_requester: tx2,
+                on_result,
+                level,
+            },
+            DataSaver {
+                receiver: rx1,
+                flush_request: rx2,
+                host,
+                app,
+                db,
+            },
+        )
+    }
 }
 
+#[cfg(feature = "local-subscriber")]
+pub struct DataSaver {
+    receiver: mpsc::UnboundedReceiver<(log::Level, LogData)>,
+
+    flush_request: mpsc::UnboundedReceiver<std::sync::mpsc::SyncSender<()>>,
+
+    host: Host,
+
+    app: App,
+
+    db: sled::Db,
+}
+
+#[cfg(feature = "remote-subscriber")]
 pub struct DataSender {
     receiver: mpsc::UnboundedReceiver<(log::Level, LogData)>,
 
@@ -109,8 +156,10 @@ pub struct DataSender {
     cache_limit: CacheLimit,
 
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
+
 }
 
+#[cfg(feature = "remote-subscriber")]
 async fn send_batch(
     client: &reqwest::Client,
     config: &ApiConfig,
@@ -126,13 +175,8 @@ async fn send_batch(
         app = app,
         level = level.to_string().to_lowercase()
     );
-    let batch = match config.serialization_format {
-        #[cfg(feautre = "json")]
-        SerializationFormat::Json => serde_json::to_vec(&batch)?,
-        #[cfg(feature = "bincode")]
-        SerializationFormat::Bincode => bincode_crate::serialize(&batch)?,
-        _ => unreachable!(),
-    };
+    let batch = config.serialization_format.serialize(&batch)?;
+
     client
         .post(url)
         .body(batch)
@@ -143,6 +187,7 @@ async fn send_batch(
     Ok(())
 }
 
+#[cfg(feature = "remote-subscriber")]
 impl DataSender {
     pub async fn run_forever<OnError>(mut self, mut func: OnError)
     where
@@ -211,6 +256,54 @@ impl DataSender {
         }
     }
 }
+
+#[cfg(feature = "local-subscriber")]
+impl DataSaver {
+    pub async fn run_forever<OnError>(mut self, mut func: OnError)
+    where
+        OnError: FnMut(Error),
+    {
+        loop {
+            if let Err(e) = self.run().await {
+                func(e)
+            }
+        }
+    }
+
+    pub async fn run(&mut self) -> Result<()> {
+        let DataSaver {
+            receiver,
+            flush_request,
+            ref db,
+            ref host,
+            app,
+        } = self;
+
+        loop {
+            let log_data = receiver.recv();
+            let flush_req = flush_request.recv();
+
+            tokio::select! {
+                Some((level, data)) = log_data => {
+                    let mut generator = ulid::Generator::new();
+                    let tree = db.open_tree(Level::from(level).get_tree_name(host))?;
+                    tree.insert(
+                        u128::from(generator.generate()?).to_be_bytes(), 
+                        bincode_crate::serialize(&data)?,
+                    )?;
+                }
+                Some(sender) = flush_req => {
+                    for level in Level::all() {
+                        let tree = db.open_tree(level.get_tree_name(host))?;
+                        tree.flush()?;
+                    }
+                    sender.send(())?;
+                }
+            }
+        }
+    }
+}
+
 
 impl log::Log for Subscriber {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
