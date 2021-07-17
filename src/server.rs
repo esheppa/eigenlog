@@ -101,19 +101,14 @@ async fn query(
     todo!()
 }
 
-pub fn create_server(
+// These endpoints are kept seperate as sometimes only one may be needed
+// for example if using local-subscriber, people may want query to add to their own app
+// if providing a submission endpoint, the app may not necessarily need to provider query as well.
+pub fn create_submission_endpoint(
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
-) -> warp::Server<impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection>> {
-    // endpoint is /logbatch/<host>/<level>
-    //
-    // new tree for each host/level combination
-    //
-    // host must be a-zAZ09 and -_
-    //
-    //
-    //
-    let submit = warp::path("submit")
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> {
+    warp::path("submit")
         .and(warp::post())
         .and(warp::path::param()) // Host
         .and(warp::path::param()) // App
@@ -122,9 +117,14 @@ pub fn create_server(
         .and(warp::header(header::CONTENT_TYPE.as_str()))
         .and(warp::body::bytes()) // LogBatch payload
         .and(add(db.clone()))
-        .and_then(|host, app, level, content_type, batch, db| submit(host, app, level, content_type, batch, db).map(error_to_reply));
+        .and_then(|host, app, level, content_type, batch, db| submit(host, app, level, content_type, batch, db).map(error_to_reply))
+}
 
-    let query = warp::path("query")
+pub fn create_query_endpoint(
+    db: sled::Db,
+    api_keys: sync::Arc<collections::BTreeSet<String>>,
+) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> {
+    warp::path("query")
         .and(warp::get())
         .and(warp::path::end())
         .and(warp::header(API_KEY_HEADER))
@@ -132,7 +132,5 @@ pub fn create_server(
         .and(warp::query())
         .and(add(db.clone()))
         .and(add(api_keys.clone()))
-        .and_then(|key, accept, params, db, keys| query(key, accept, params, db, keys).map(error_to_reply));
-
-    warp::serve(submit.or(query))
+        .and_then(|key, accept, params, db, keys| query(key, accept, params, db, keys).map(error_to_reply))
 }
