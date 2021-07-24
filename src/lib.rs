@@ -1,14 +1,16 @@
 #![deny(warnings)]
 #![deny(clippy::all)]
+// otherwise the feature combinations would be too messy
+#![allow(dead_code)]
 
 //! We have a seperate tree created for each combination of hostname and log level. While this is slightly less efficient when wanting to
 //! view all logs between a time range for all log levels, it is beneficial from the loading side. This is because by having a seperate tree
 //! we can ensure that we always insert ascending values of the index. It also ensures that we can send through different log levels
 //! at different frequencies (eg per message for Errors, per n messages for Info).
 
+use http::header;
 use once_cell::sync as once_cell;
 use std::{collections, fmt, iter, result};
-use http::header;
 
 #[cfg(feature = "client")]
 pub mod client;
@@ -19,13 +21,13 @@ pub mod subscriber;
 
 cfg_if::cfg_if! {
     if #[cfg(not(any(feature = "bincode", feature = "json")))] {
-        compile_error!("eigenlog: must select at least one of `json` and `bincode`")
+        compile_error!("eigenlog: must select at least one of `json` and `bincode`");
     }
 }
 
 cfg_if::cfg_if! {
     if #[cfg(not(any(feature = "client", feature = "server", feature = "remote-subscriber", feature = "local-subscriber")))] {
-        compile_error!("eigenlog: must select at least one of `client`, `server` or `subscriber`")
+        compile_error!("eigenlog: must select at least one of `client`, `server` or `subscriber`");
     }
 }
 
@@ -38,7 +40,11 @@ cfg_if::cfg_if! {
 // }
 
 const API_KEY_HEADER: &str = "X-API-KEY";
+
+#[cfg(feature = "json")]
 const APPLICATION_JSON: &str = "application/json";
+
+#[cfg(feature = "bincode")]
 const OCTET_STREAM: &str = "application/octet-stream";
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -66,7 +72,7 @@ type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
 
 #[derive(Clone, Debug, Copy)]
 pub enum SerializationFormat {
-    #[cfg(feautre = "bincode")]
+    #[cfg(any(feautre = "bincode", feature = "server"))]
     Bincode,
     #[cfg(feature = "json")]
     Json,
@@ -78,7 +84,7 @@ impl SerializationFormat {
             if #[cfg(all(feature = "bincode", feature = "json"))] {
                 match self {
                     SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
-                    SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON), 
+                    SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
                 }
             } else if #[cfg(feature = "json")] {
                 header::HeaderValue::from_static(APPLICATION_JSON)
@@ -89,8 +95,9 @@ impl SerializationFormat {
             }
         }
     }
-    fn serialize<T>(&self, t: T) -> Result<Vec<u8>> 
-    where T: serde::Serialize 
+    fn serialize<T>(&self, t: T) -> Result<Vec<u8>>
+    where
+        T: serde::Serialize,
     {
         cfg_if::cfg_if! {
             if #[cfg(all(feature = "bincode", feature = "json"))] {
@@ -121,6 +128,12 @@ pub struct TreeName {
     host: Host,
     app: App,
     level: Level,
+}
+
+impl TreeName {
+    fn from_bytes(bytes: &[u8]) -> Result<TreeName> {
+        todo!()
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -212,13 +225,12 @@ pub enum Level {
 }
 
 impl Level {
-    fn get_tree_name(&self, hostname: &Host) -> String {
-        format!("{}-{}", hostname.name, self)
+    #[cfg(any(feature = "server", feature = "local-subscriber"))]
+    fn get_tree_name(&self, hostname: &Host, application: &App) -> String {
+        format!("{}-{}-{}", hostname.name, application.name, self)
     }
     fn get_levels(max_level: Level) -> collections::BTreeSet<Level> {
-        Level::all()
-            .filter(|l| *l <= max_level)
-            .collect()
+        Level::all().filter(|l| *l <= max_level).collect()
     }
     fn all() -> impl Iterator<Item = Level> {
         IntoIterator::into_iter([
@@ -226,7 +238,7 @@ impl Level {
             Level::Debug,
             Level::Info,
             Level::Warn,
-            Level::Error,    
+            Level::Error,
         ])
     }
 }

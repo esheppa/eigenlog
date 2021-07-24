@@ -1,6 +1,5 @@
 use super::*;
 #[cfg(feature = "remote-subscriber")]
-
 use futures::stream::StreamExt;
 
 #[cfg(feature = "remote-subscriber")]
@@ -68,7 +67,7 @@ impl Subscriber {
     fn on_result<T, E>(&self, result: result::Result<T, E>) {
         let func = &self.on_result;
         func(result.map_err(|_| ()).map(|_| ()))
-    } 
+    }
     #[cfg(feature = "remote-subscriber")]
     pub fn new_remote(
         on_result: Box<dyn Fn(result::Result<(), ()>) + Sync + Send>,
@@ -156,7 +155,6 @@ pub struct DataSender {
     cache_limit: CacheLimit,
 
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
-
 }
 
 #[cfg(feature = "remote-subscriber")]
@@ -180,7 +178,10 @@ async fn send_batch(
     client
         .post(url)
         .body(batch)
-        .header(header::CONTENT_TYPE, config.serialization_format.header_value())
+        .header(
+            header::CONTENT_TYPE,
+            config.serialization_format.header_value(),
+        )
         .send()
         .await?
         .error_for_status()?;
@@ -286,15 +287,15 @@ impl DataSaver {
             tokio::select! {
                 Some((level, data)) = log_data => {
                     let mut generator = ulid::Generator::new();
-                    let tree = db.open_tree(Level::from(level).get_tree_name(host))?;
+                    let tree = db.open_tree(Level::from(level).get_tree_name(host, app))?;
                     tree.insert(
-                        u128::from(generator.generate()?).to_be_bytes(), 
+                        u128::from(generator.generate()?).to_be_bytes(),
                         bincode_crate::serialize(&data)?,
                     )?;
                 }
                 Some(sender) = flush_req => {
                     for level in Level::all() {
-                        let tree = db.open_tree(level.get_tree_name(host))?;
+                        let tree = db.open_tree(level.get_tree_name(host, app))?;
                         tree.flush()?;
                     }
                     sender.send(())?;
@@ -303,7 +304,6 @@ impl DataSaver {
         }
     }
 }
-
 
 impl log::Log for Subscriber {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
