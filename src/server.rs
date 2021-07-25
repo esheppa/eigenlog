@@ -15,33 +15,36 @@ fn add<C: Clone + Send>(
     warp::any().map(move || c.clone())
 }
 
-pub enum AppReply {
-    Json(warp::reply::Json),
-    Bincode(http::Response<hyper::Body>),
+pub enum AppReply<T: serde::Serialize> {
+    Json(T),
+    Bincode(T),
     Empty,
 }
 
-impl<T: serde::Serialize> From<T> for AppReply {
-    fn from(t: T) -> AppReply {
-        AppReply::Json(warp::reply::json(&t))
-    }
-}
+// impl<T: serde::Serialize> From<T> for AppReply {
+//     fn from(t: T) -> AppReply {
+//         AppReply::Json(warp::reply::json(&t))
+//     }
+// }
 
-impl warp::Reply for AppReply {
+impl<T: serde::Serialize + Send> warp::Reply for AppReply<T> {
     fn into_response(self) -> warp::reply::Response {
         match self {
-            AppReply::Json(j) => j.into_response(),
-            AppReply::Bincode(i) => i.into_response(),
-            AppReply::Empty => warp::http::Response::default(),
+            #[cfg(feature = "json")]
+            AppReply::Json(j) => warp::reply::json(&j).into_response(),
+            AppReply::Bincode(i) => http::Response::new(hyper::Body::from(
+                bincode::serialize(&i).expect("Bincode Serialize should succeed"),
+            )),
+            AppReply::Empty => http::Response::default(),
         }
     }
 }
 
 // make a new version for each return type?
 // need a new into_reply as well
-pub fn error_to_reply<R: Into<AppReply>>(
-    maybe_err: Result<R>,
-) -> result::Result<AppReply, convert::Infallible> {
+pub fn error_to_reply<T: serde::Serialize>(
+    maybe_err: Result<AppReply<T>>,
+) -> result::Result<AppReply<T>, convert::Infallible> {
     match maybe_err {
         Ok(r) => Ok(r.into()),
         Err(e) => Ok(e.to_reply()),
@@ -49,7 +52,7 @@ pub fn error_to_reply<R: Into<AppReply>>(
 }
 
 impl Error {
-    pub fn to_reply<'a>(self) -> AppReply {
+    pub fn to_reply<'a, T: serde::Serialize>(self) -> AppReply<T> {
         todo!()
     }
 }
@@ -59,23 +62,20 @@ async fn submit(
     app: App,
     level: Level,
     api_key: String,
-    content_type: String,
+    content_type: SerializationFormat,
     bytes: body::Bytes,
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
-) -> Result<()> {
+) -> Result<AppReply<()>> {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
     }
 
-    let batch: LogBatch = match content_type.as_str() {
-        OCTET_STREAM => bincode::deserialize(&bytes)?,
+    let batch: LogBatch = match content_type {
+        SerializationFormat::Bincode => bincode::deserialize(&bytes)?,
         #[cfg(feature = "json")]
-        APPLICATION_JSON => serde_json::from_slice(&bytes)?,
-        _ => {
-            return Err(Error::InvalidSubmissionContentType(content_type));
-        }
+        SerializationFormat::Json => serde_json::from_slice(&bytes)?,
     };
 
     // this will create the tree if it doesn't already exist
@@ -90,69 +90,133 @@ async fn submit(
         tree.insert(u128::from(key).to_be_bytes(), bincode::serialize(&item)?)?;
     }
 
-    Ok(())
+    Ok(AppReply::Empty)
 }
 
+fn filter_with_option<T: AsRef<str>>(input: &T, filter: &Option<T>) -> bool {
+    filter
+        .as_ref()
+        .map(|f| input.as_ref().contains(f.as_ref()))
+        .unwrap_or(true)
+}
+
+// later this function should access the db via a channel to bridge sync and async
+// this will avoid blocking the runtime
+// in the short term we will leave it like this
 async fn query(
     api_key: String,
-    accept: String,
+    accept: SerializationFormat,
     params: QueryParams,
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
     // vec queryresponse isn't that nice, but
     // it is the best option when using JSON serialization.
     // for Bincode or RON there could be another endpoint.
-) -> Result<Vec<QueryResponse>> {
+) -> Result<AppReply<Vec<QueryResponse>>> {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
     }
 
-    // let hosts = db
-    //     .tree_names()
-    //     .into_iter()
-    //     .filter_map(|n| n.split(b"-").next())
+    let relevant_trees = db
+        .tree_names()
+        .iter()
+        .filter_map(|t| TreeName::from_bytes(&t).ok())
+        .filter(|t| filter_with_option(&t.host, &params.host_contains))
+        .filter(|t| filter_with_option(&t.app, &params.app_contains))
+        .filter(|t| t.level >= params.max_log_level.clone().unwrap_or(Level::Info))
+        .collect::<Vec<_>>();
 
-    todo!()
-}
+    let start = params
+        .start_timestamp
+        .map(ulid::Ulid::from_datetime)
+        .map(ulid_floor)
+        .unwrap_or(u128::MIN)
+        .to_be_bytes();
 
-// empty trees will be ignored
-// so we can be sure we will always have a min and max date
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-struct LogTreeInfo {
-    host: Host,
-    app: App,
-    level: Level,
-    min: chrono::DateTime<chrono::Utc>,
-    max: chrono::DateTime<chrono::Utc>,
+    let end = params
+        .start_timestamp
+        .map(ulid::Ulid::from_datetime)
+        .map(ulid_ceiling)
+        .unwrap_or(u128::MAX)
+        .to_be_bytes();
+
+    let mut response = Vec::new();
+    for tree_name in relevant_trees {
+        let tree = db.open_tree(tree_name.to_string())?;
+        for item in tree.range(start..=end) {
+            let (key, value) = item?;
+            response.push(QueryResponse {
+                host: tree_name.host.clone(),
+                app: tree_name.app.clone(),
+                level: tree_name.level.clone(),
+                id: ivec_be_to_u128(key)?.into(),
+                data: bincode::deserialize(&value)?,
+            })
+        }
+    }
+
+    match accept {
+        SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
+        #[cfg(feature = "json")]
+        SerializationFormat::Json => Ok(AppReply::Json(response)),
+    }
 }
 
 async fn info(
     api_key: String,
-    accept: String,
+    accept: SerializationFormat,
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
     // vec queryresponse isn't that nice, but
     // it is the best option when using JSON serialization.
     // for Bincode or RON there could be another endpoint.
-) -> Result<Vec<LogTreeInfo>> {
+) -> Result<AppReply<Vec<LogTreeInfo>>> {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
     }
 
-    // let hosts = db
-    //     .tree_names()
-    //     .into_iter()
-    //     .filter_map(|n| n.split(b"-").next())
+    let mut db_info = Vec::new();
 
-    todo!()
+    for name in db.tree_names() {
+        if let Some(info) = tree_name_to_info(&db, name)? {
+            db_info.push(info);
+        }
+    }
+
+    match accept {
+        SerializationFormat::Bincode => Ok(AppReply::Bincode(db_info)),
+        #[cfg(feature = "json")]
+        SerializationFormat::Json => Ok(AppReply::Json(db_info)),
+    }
+}
+
+fn ulid_floor(input: ulid::Ulid) -> u128 {
+    let mut base = u128::from(input).to_be_bytes();
+
+    for i in 6..16 {
+        base[i] = u8::MIN;
+    }
+
+    u128::from_be_bytes(base)
+}
+
+fn ulid_ceiling(input: ulid::Ulid) -> u128 {
+    let mut base = u128::from(input).to_be_bytes();
+
+    for i in 6..16 {
+        base[i] = u8::MAX;
+    }
+
+    u128::from_be_bytes(base)
 }
 
 fn ivec_be_to_u128(vec: sled::IVec) -> crate::Result<u128> {
     let mut bytes = [0; 16];
+
     if vec.len() != 16 {
-        return Err(todo!());
+        return Err(crate::Error::InvalidLengthBytesForUlid(vec.len()));
     }
 
     for (i, b) in vec.into_iter().enumerate() {

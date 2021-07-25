@@ -33,7 +33,29 @@ impl ApiConfig {
         Ok(bincode::deserialize(&resp)?)
     }
 
-    pub async fn info(&self, client: &reqwest::Client) -> Result<Vec<TreeName>> {
-        todo!()
+    pub async fn info(&self, client: &reqwest::Client) -> Result<Vec<LogTreeInfo>> {
+        let url = format!("{}/info", self.base_url);
+
+        let mut headers = header::HeaderMap::new();
+
+        headers.insert(
+            header::HeaderName::from_static(API_KEY_HEADER),
+            header::HeaderValue::from_str(&self.api_key)?,
+        );
+
+        headers.insert(
+            header::ACCEPT,
+            header::HeaderValue::from_static(OCTET_STREAM),
+        );
+
+        let resp = client
+            .get(url)
+            .headers(headers)
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await?;
+        Ok(bincode::deserialize(&resp)?)
     }
 }

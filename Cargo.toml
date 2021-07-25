@@ -56,6 +56,10 @@ features = ["serde","uuid"]
 version = "0.3"
 optional = true
 
+[dev-dependencies]
+names = "0.9"
+
+
 [features]
 json = ["serde_json", "reqwest/json"]
 bincode = [ "bincode-crate" ]
@@ -63,7 +67,7 @@ client = ["reqwest", "bincode"]
 remote-subscriber = ["reqwest"] # needs one of bincode or json
 local-subscriber = ["sled", "bincode"]
 server = ["sled", "warp", "bincode"]
-# default = ["subscriber"]
+# default = ["remote-subscriber", "bincode"]
 
 # for dev
 default = ["all"]

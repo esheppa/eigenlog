@@ -10,7 +10,7 @@
 
 use http::header;
 use once_cell::sync as once_cell;
-use std::{collections, fmt, iter, result};
+use std::{collections, fmt, iter, result, str};
 
 #[cfg(feature = "client")]
 pub mod client;
@@ -30,14 +30,6 @@ cfg_if::cfg_if! {
         compile_error!("eigenlog: must select at least one of `client`, `server` or `subscriber`");
     }
 }
-
-// cfg_if::cfg_if! {
-//     if #[cfg(any(feature = "client", feature = "subscriber"))] {
-//         use reqwest::header;
-//     } else if #[cfg(feature = "server")] {
-//         use warp::header;
-//     }
-// }
 
 const API_KEY_HEADER: &str = "X-API-KEY";
 
@@ -72,46 +64,46 @@ type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
 
 #[derive(Clone, Debug, Copy)]
 pub enum SerializationFormat {
-    #[cfg(any(feautre = "bincode", feature = "server"))]
+    #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
     Bincode,
     #[cfg(feature = "json")]
     Json,
 }
 
+impl str::FromStr for SerializationFormat {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            #[cfg(feature = "json")]
+            APPLICATION_JSON => Ok(SerializationFormat::Json),
+            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+            OCTET_STREAM => Ok(SerializationFormat::Bincode),
+            otherwise => Err(Error::UnsupportedSerializationMimeType(
+                otherwise.to_string(),
+            )),
+        }
+    }
+}
+
 impl SerializationFormat {
     fn header_value(&self) -> header::HeaderValue {
-        cfg_if::cfg_if! {
-            if #[cfg(all(feature = "bincode", feature = "json"))] {
-                match self {
-                    SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
-                    SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
-                }
-            } else if #[cfg(feature = "json")] {
-                header::HeaderValue::from_static(APPLICATION_JSON)
-            } else if #[cfg(feature = "bincode")] {
-                header::HeaderValue::from_static(OCTET_STREAM)
-            } else {
-                compile_error!("eigenlog: must select at least one of `json` and `bincode`")
-            }
+        match self {
+            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+            SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
+            #[cfg(feature = "json")]
+            SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
         }
     }
     fn serialize<T>(&self, t: T) -> Result<Vec<u8>>
     where
         T: serde::Serialize,
     {
-        cfg_if::cfg_if! {
-            if #[cfg(all(feature = "bincode", feature = "json"))] {
-                match self {
-                    SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
-                    SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
-                }
-            } else if #[cfg(feature = "json")] {
-                Ok(serde_json::to_vec(&t)?)
-            } else if #[cfg(feature = "bincode")] {
-                Ok(bincode_crate::serialize(&t)?)
-            } else {
-                compile_error!("eigenlog: must select at least one of `json` and `bincode`")
-            }
+
+        match self {
+            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+            SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
+            #[cfg(feature = "json")]
+            SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
         }
     }
 }
@@ -132,35 +124,76 @@ pub struct TreeName {
 
 impl TreeName {
     fn from_bytes(bytes: &[u8]) -> Result<TreeName> {
-        todo!()
+        let indicies = bytes
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| **b == b'-')
+            .map(|t| t.0)
+            .collect::<Vec<usize>>();
+        if indicies.len() != 2 {
+            return Err(Error::ParseTreeNameFromBytes(bytes.to_owned()));
+        }
+        Ok(TreeName {
+            host: String::from_utf8_lossy(&bytes[..indicies[0]])
+                .parse()
+                .map_err(|_| Error::ParseTreeNameFromBytes(bytes.to_owned()))?,
+            app: String::from_utf8_lossy(&bytes[indicies[0]..indicies[1]])
+                .parse()
+                .map_err(|_| Error::ParseTreeNameFromBytes(bytes.to_owned()))?,
+            level: String::from_utf8_lossy(&bytes[indicies[1]..])
+                .parse()
+                .map_err(|_| Error::ParseTreeNameFromBytes(bytes.to_owned()))?,
+        })
     }
 }
 
+// this is because the display impl is inefficient
+impl ToString for TreeName {
+    fn to_string(&self) -> String {
+        self.level.get_tree_name(&self.host, &self.app)
+    }
+}
+
+// empty trees will be ignored
+// so we can be sure we will always have a min and max date
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct LogTreeInfo {
+    pub host: Host,
+    pub app: App,
+    pub level: Level,
+    pub min: chrono::DateTime<chrono::Utc>,
+    pub max: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct QueryParams {
     /// will only return logs equal to or more significant than this level,
     /// where `Trace` is the least significant and `Error` is the most significant
-    max_log_level: Option<Level>,
-
-    start_timestamp: Option<chrono::DateTime<chrono::Utc>>,
-
-    end_timestamp: Option<chrono::DateTime<chrono::Utc>>,
-
-    host_contains: Option<String>,
+    pub max_log_level: Option<Level>,
+    pub start_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    pub end_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    pub host_contains: Option<Host>,
+    pub app_contains: Option<App>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct QueryResponse {
-    host: Host,
-    app: App,
-    level: Level,
-    id: ulid::Ulid,
-    data: LogData,
+    pub host: Host,
+    pub app: App,
+    pub level: Level,
+    pub id: ulid::Ulid,
+    pub data: LogData,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct Host {
     name: String,
+}
+
+impl AsRef<str> for Host {
+    fn as_ref(&self) -> &str {
+        &self.name
+    }
 }
 
 static HOST_REGEX: once_cell::Lazy<regex::Regex> =
@@ -191,6 +224,12 @@ impl fmt::Display for Host {
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct App {
     name: String,
+}
+
+impl AsRef<str> for App {
+    fn as_ref(&self) -> &str {
+        &self.name
+    }
 }
 
 impl std::str::FromStr for App {
@@ -225,7 +264,6 @@ pub enum Level {
 }
 
 impl Level {
-    #[cfg(any(feature = "server", feature = "local-subscriber"))]
     fn get_tree_name(&self, hostname: &Host, application: &App) -> String {
         format!("{}-{}-{}", hostname.name, application.name, self)
     }
@@ -306,8 +344,14 @@ pub enum Error {
     #[error("Submission of content type `{0}` is not valid")]
     InvalidSubmissionContentType(String),
 
+    #[error("Bytes of length {0} cannot be converted to a Ulid (16 required")]
+    InvalidLengthBytesForUlid(usize),
+
     #[error("Missing entity with id: {0}")]
     MissingEntity(ulid::Ulid),
+
+    #[error("Error parsing tree name from bytes: {}", String::from_utf8_lossy(.0))]
+    ParseTreeNameFromBytes(Vec<u8>),
 
     #[cfg(feature = "reqwest")]
     #[error("Reqwest: {0}")]
@@ -322,6 +366,9 @@ pub enum Error {
 
     #[error("Uuid: {0}")]
     Uuid(#[from] uuid::Error),
+
+    #[error("Unsupported serialization mime type of: {0}")]
+    UnsupportedSerializationMimeType(String),
 
     #[cfg(feature = "server")]
     #[error("Warp: {0}")]
