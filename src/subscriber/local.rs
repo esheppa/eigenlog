@@ -68,12 +68,10 @@ impl DataSaver {
 
             tokio::select! {
                 Some((level, data)) = log_data => {
-                let mut generator = ulid::Generator::new();
-                let tree = db.open_tree(Level::from(level).get_tree_name(host, app))?;
-                tree.insert(
-                    u128::from(generator.generate()?).to_be_bytes(),
-                    bincode_crate::serialize(&data)?,
-                )?;
+                    let mut generator = ulid::Generator::new();
+                    let mut batch = collections::BTreeMap::new();
+                    batch.insert(generator.generate()?, data);
+                    db::submit(host, app, level.into(), batch, db)?;
                 }
                 Some(sender) = flush_req => {
                 for level in Level::all() {

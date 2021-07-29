@@ -19,6 +19,9 @@ pub mod server;
 #[cfg(any(feature = "remote-subscriber", feature = "local-subscriber"))]
 pub mod subscriber;
 
+#[cfg(any(feature = "server", feature = "local-subscriber", feature = "bincode"))]
+pub mod db;
+
 cfg_if::cfg_if! {
     if #[cfg(not(any(feature = "bincode", feature = "json")))] {
         compile_error!("eigenlog: must select at least one of `json` and `bincode`");
