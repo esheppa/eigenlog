@@ -1,7 +1,13 @@
 use super::*;
 use bincode_crate as bincode;
 
-pub fn submit(host: &Host, app: &App, level: Level, log_batch: LogBatch, db: &sled::Db) -> Result<()> {
+pub fn submit(
+    host: &Host,
+    app: &App,
+    level: Level,
+    log_batch: LogBatch,
+    db: &sled::Db,
+) -> Result<()> {
     // this will create the tree if it doesn't already exist
     let tree = db.open_tree(level.get_tree_name(host, app))?;
 
@@ -23,7 +29,6 @@ fn filter_with_option<T: AsRef<str>>(input: &T, filter: &Option<T>) -> bool {
         .map(|f| input.as_ref().contains(f.as_ref()))
         .unwrap_or(true)
 }
-
 
 pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
     let relevant_trees = db

@@ -101,7 +101,6 @@ impl SerializationFormat {
     where
         T: serde::Serialize,
     {
-
         match self {
             #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
             SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
@@ -113,7 +112,7 @@ impl SerializationFormat {
 
 #[cfg(any(feature = "client", feature = "remote-subscriber"))]
 pub struct ApiConfig {
-    pub base_url: String,
+    pub base_url: reqwest::Url,
     pub api_key: String,
     pub serialization_format: SerializationFormat,
 }

@@ -127,7 +127,6 @@ async fn info(
     }
 }
 
-
 // These endpoints are kept seperate as sometimes only one may be needed
 // for example if using local-subscriber, people may want query to add to their own app
 // if providing a submission endpoint, the app may not necessarily need to provider query as well.
