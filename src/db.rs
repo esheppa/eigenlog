@@ -16,6 +16,7 @@ pub fn submit(
     // for all the rows to be atomically applied, and it should be faster
     // to add them one by one.
     for (key, item) in log_batch {
+        dbg!((&key, &item));
         // use to_be_bytes to ensure that the ulid is sorted as expected
         tree.insert(u128::from(key).to_be_bytes(), bincode::serialize(&item)?)?;
     }
@@ -76,8 +77,19 @@ pub fn info(db: &sled::Db) -> Result<Vec<LogTreeInfo>> {
     let mut db_info = Vec::new();
 
     for name in db.tree_names() {
-        if let Some(info) = tree_name_to_info(&db, name)? {
-            db_info.push(info);
+        match tree_name_to_info(&db, name.clone()) {
+            Ok(Some(info)) => {
+                db_info.push(info);
+            }
+            // consider what to do here - prehaps an enum within LogTreeInfo.
+            Ok(None) => {
+                eprintln!("Tree {} is empty", String::from_utf8_lossy(&name));
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Skipping invalid tree name {}, due to: {}",String::from_utf8_lossy(&name), e);
+                continue;     
+            }
         }
     }
 

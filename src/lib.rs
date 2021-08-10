@@ -139,10 +139,10 @@ impl TreeName {
             host: String::from_utf8_lossy(&bytes[..indicies[0]])
                 .parse()
                 .map_err(|_| Error::ParseTreeNameFromBytes(bytes.to_owned()))?,
-            app: String::from_utf8_lossy(&bytes[indicies[0]..indicies[1]])
+            app: String::from_utf8_lossy(&bytes[(indicies[0] + 1)..indicies[1]])
                 .parse()
                 .map_err(|_| Error::ParseTreeNameFromBytes(bytes.to_owned()))?,
-            level: String::from_utf8_lossy(&bytes[indicies[1]..])
+            level: String::from_utf8_lossy(&bytes[(indicies[1] + 1)..])
                 .parse()
                 .map_err(|_| Error::ParseTreeNameFromBytes(bytes.to_owned()))?,
         })
@@ -168,7 +168,7 @@ pub struct LogTreeInfo {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct QueryParams {
+pub struct  QueryParams {
     /// will only return logs equal to or more significant than this level,
     /// where `Trace` is the least significant and `Error` is the most significant
     pub max_log_level: Option<Level>,

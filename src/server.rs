@@ -19,6 +19,7 @@ pub enum AppReply<T: serde::Serialize> {
     Json(T),
     Bincode(T),
     Empty,
+    Error(String),
 }
 
 impl<T: serde::Serialize + Send> warp::Reply for AppReply<T> {
@@ -30,6 +31,7 @@ impl<T: serde::Serialize + Send> warp::Reply for AppReply<T> {
                 bincode::serialize(&i).expect("Bincode Serialize should succeed"),
             )),
             AppReply::Empty => http::Response::default(),
+            AppReply::Error(e) => e.into_response(),
         }
     }
 }
@@ -47,7 +49,7 @@ pub fn error_to_reply<T: serde::Serialize>(
 
 impl Error {
     pub fn to_reply<'a, T: serde::Serialize>(self) -> AppReply<T> {
-        todo!()
+        AppReply::Error(self.to_string())
     }
 }
 
@@ -133,7 +135,7 @@ async fn info(
 pub fn create_submission_endpoint(
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> {
+) -> impl warp::Filter<Extract = (AppReply<()>,), Error = warp::Rejection> + Clone {
     warp::path("submit")
         .and(warp::post())
         .and(warp::path::param()) // Host
@@ -153,7 +155,7 @@ pub fn create_submission_endpoint(
 pub fn create_query_endpoint(
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> {
+) -> impl warp::Filter<Extract = (AppReply<Vec<QueryResponse>>,), Error = warp::Rejection> + Clone {
     warp::path("query")
         .and(warp::get())
         .and(warp::path::end())
@@ -170,7 +172,7 @@ pub fn create_query_endpoint(
 pub fn create_info_endpoint(
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
-) -> impl warp::Filter<Extract = impl warp::Reply, Error = warp::Rejection> {
+) -> impl warp::Filter<Extract = (AppReply<Vec<LogTreeInfo>>,), Error = warp::Rejection> + Clone {
     warp::path("info")
         .and(warp::get())
         .and(warp::path::end())
