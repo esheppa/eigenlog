@@ -18,6 +18,12 @@ pub struct Subscriber {
 
     level: log::Level,
 }
+impl Subscriber {
+    pub fn set_logger(self) -> Result<()> {
+        log::set_boxed_logger(Box::new(self))?;
+        Ok(())
+    }
+}
 
 /// How many messages of a given level
 /// that we will stack up in the cache

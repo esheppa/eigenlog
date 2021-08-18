@@ -87,8 +87,12 @@ pub fn info(db: &sled::Db) -> Result<Vec<LogTreeInfo>> {
                 continue;
             }
             Err(e) => {
-                eprintln!("Skipping invalid tree name {}, due to: {}",String::from_utf8_lossy(&name), e);
-                continue;     
+                eprintln!(
+                    "Skipping invalid tree name {}, due to: {}",
+                    String::from_utf8_lossy(&name),
+                    e
+                );
+                continue;
             }
         }
     }

@@ -168,7 +168,7 @@ pub struct LogTreeInfo {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
-pub struct  QueryParams {
+pub struct QueryParams {
     /// will only return logs equal to or more significant than this level,
     /// where `Trace` is the least significant and `Error` is the most significant
     pub max_log_level: Option<Level>,
@@ -375,4 +375,7 @@ pub enum Error {
     #[cfg(feature = "server")]
     #[error("Warp: {0}")]
     Warp(#[from] warp::Error),
+
+    #[error("Setting logger: {0}")]
+    Log(#[from] log::SetLoggerError),
 }
