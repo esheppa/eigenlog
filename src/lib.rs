@@ -34,7 +34,7 @@ cfg_if::cfg_if! {
     }
 }
 
-const API_KEY_HEADER: &str = "X-API-KEY";
+const API_KEY_HEADER: &str = "x-api-key";
 
 #[cfg(feature = "json")]
 const APPLICATION_JSON: &str = "application/json";

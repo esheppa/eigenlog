@@ -60,7 +60,7 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
         let tree = db.open_tree(tree_name.to_string())?;
         for item in tree.range(start..=end) {
             let (key, value) = item?;
-            response.push(QueryResponse {
+        response.push(QueryResponse {
                 host: tree_name.host.clone(),
                 app: tree_name.app.clone(),
                 level: tree_name.level.clone(),
@@ -103,8 +103,8 @@ pub fn info(db: &sled::Db) -> Result<Vec<LogTreeInfo>> {
 fn ulid_floor(input: ulid::Ulid) -> u128 {
     let mut base = u128::from(input).to_be_bytes();
 
-    for i in 6..16 {
-        base[i] = u8::MIN;
+    for i in base.iter_mut().skip(6) {
+        *i = u8::MIN;
     }
 
     u128::from_be_bytes(base)
@@ -113,8 +113,8 @@ fn ulid_floor(input: ulid::Ulid) -> u128 {
 fn ulid_ceiling(input: ulid::Ulid) -> u128 {
     let mut base = u128::from(input).to_be_bytes();
 
-    for i in 6..16 {
-        base[i] = u8::MAX;
+    for i in base.iter_mut().skip(6) {
+        *i = u8::MAX;
     }
 
     u128::from_be_bytes(base)
@@ -127,7 +127,7 @@ fn ivec_be_to_u128(vec: sled::IVec) -> crate::Result<u128> {
         return Err(crate::Error::InvalidLengthBytesForUlid(vec.len()));
     }
 
-    for (i, b) in vec.into_iter().enumerate() {
+    for (i, b) in vec.iter().enumerate() {
         bytes[i] = *b;
     }
 

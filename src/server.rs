@@ -42,17 +42,19 @@ pub fn error_to_reply<T: serde::Serialize>(
     maybe_err: Result<AppReply<T>>,
 ) -> result::Result<AppReply<T>, convert::Infallible> {
     match maybe_err {
-        Ok(r) => Ok(r.into()),
-        Err(e) => Ok(e.to_reply()),
+        Ok(r) => Ok(r),
+        Err(e) => Ok(e.into_reply()),
     }
 }
 
 impl Error {
-    pub fn to_reply<'a, T: serde::Serialize>(self) -> AppReply<T> {
+    pub fn into_reply<T: serde::Serialize>(self) -> AppReply<T> {
         AppReply::Error(self.to_string())
     }
 }
 
+// this is ok as it is an internal function
+#[allow(clippy::too_many_arguments)]
 async fn submit(
     host: Host,
     app: App,
@@ -145,8 +147,8 @@ pub fn create_submission_endpoint(
         .and(warp::header(API_KEY_HEADER))
         .and(warp::header(header::CONTENT_TYPE.as_str()))
         .and(warp::body::bytes()) // LogBatch payload
-        .and(add(db.clone()))
-        .and(add(api_keys.clone()))
+        .and(add(db))
+        .and(add(api_keys))
         .and_then(|host, app, level, key, content_type, batch, db, keys| {
             submit(host, app, level, key, content_type, batch, db, keys).map(error_to_reply)
         })
@@ -162,8 +164,8 @@ pub fn create_query_endpoint(
         .and(warp::header(API_KEY_HEADER))
         .and(warp::header(header::ACCEPT.as_str()))
         .and(warp::query())
-        .and(add(db.clone()))
-        .and(add(api_keys.clone()))
+        .and(add(db))
+        .and(add(api_keys))
         .and_then(|key, accept, params, db, keys| {
             query(key, accept, params, db, keys).map(error_to_reply)
         })
@@ -178,7 +180,7 @@ pub fn create_info_endpoint(
         .and(warp::path::end())
         .and(warp::header(API_KEY_HEADER))
         .and(warp::header(header::ACCEPT.as_str()))
-        .and(add(db.clone()))
-        .and(add(api_keys.clone()))
+        .and(add(db))
+        .and(add(api_keys))
         .and_then(|key, accept, db, keys| info(key, accept, db, keys).map(error_to_reply))
 }

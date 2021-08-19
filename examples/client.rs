@@ -102,7 +102,7 @@ impl DataSource {
                 }
             }
             DataSource::Remote(base_url) => {
-                let api_key = String::new(); // # TODO
+                let api_key = String::from("123"); // # TODO
                 let api_config = eigenlog::ApiConfig {
                     base_url,
                     api_key,
@@ -191,11 +191,13 @@ impl CmdResult {
                 CmdResult::Info(i) => {
                     for row in info_to_table(i).lines() {
                         handle.write_all(row.as_bytes())?;
+                        handle.write_all("\n".as_bytes())?;
                     }
                 }
                 CmdResult::Query(q) => {
                     for row in data_to_table(q).lines() {
                         handle.write_all(row.as_bytes())?;
+                        handle.write_all("\n".as_bytes())?;
                     }
                 }
             },
@@ -257,9 +259,9 @@ async fn main() -> anyhow::Result<()> {
 
     let data_source = app_config.data_source()?;
 
-    if let DataSource::Remote(_) = data_source {
-        return Err(anyhow::anyhow!("-u/--url is not yet supported"));
-    }
+    // if let DataSource::Remote(_) = data_source {
+    //     return Err(anyhow::anyhow!("-u/--url is not yet supported"));
+    // }
 
     let result = data_source.run_cmd(app_config.cmd).await?;
 

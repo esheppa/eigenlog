@@ -4,7 +4,7 @@ use reqwest::header;
 
 impl Subscriber {
     pub fn new_remote(
-        on_result: Box<dyn Fn(result::Result<(), ()>) + Sync + Send>,
+        on_result: Box<dyn Fn(&'static str) + Sync + Send>,
         api_config: ApiConfig,
         host: Host,
         app: App,

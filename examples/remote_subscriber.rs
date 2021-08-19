@@ -5,7 +5,7 @@ use eigenlog::subscriber;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let error_handler = Box::new(|_| eprintln!("Error from logging subscriber"));
+    let error_handler = Box::new(|err| eprintln!("Error from logging subscriber: {}", err));
     let sender_error_handler = Box::new(|e| eprintln!("Error from data sender {}", e));
     let api_config = eigenlog::ApiConfig {
         base_url: reqwest::Url::parse("http://127.0.0.1/log")?,
@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
         subscriber::CacheLimit::default(),
     );
 
-    subscriber.set_logger()?;
+    subscriber.set_logger(log::LevelFilter::Trace)?;
 
     let log_generator = async {
         let mut generator = names::Generator::default();
@@ -36,6 +36,7 @@ async fn main() -> anyhow::Result<()> {
         for i in 1..10000 {
             log::info!("{}: {}", i, generator.next().unwrap());
         }
+        println!("Generated 10000 logs");
     };
 
     tokio::select! {

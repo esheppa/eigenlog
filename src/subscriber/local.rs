@@ -2,7 +2,7 @@ use super::*;
 
 impl Subscriber {
     pub fn new_local(
-        on_result: Box<dyn Fn(result::Result<(), ()>) + Sync + Send>,
+        on_result: Box<dyn Fn(&'static str) + Sync + Send>,
         host: Host,
         app: App,
         level: log::Level,
