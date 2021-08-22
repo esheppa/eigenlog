@@ -3,7 +3,7 @@
 use eigenlog::{self, db};
 use std::{
     io::{self, Write},
-    path, str,
+    path, result, str,
 };
 
 // CLI command to get info
@@ -86,6 +86,7 @@ impl DataSource {
                         end_timestamp,
                         host_contains,
                         app_contains,
+                        message_regex,
                     } => {
                         let query = db::query(
                             eigenlog::QueryParams {
@@ -94,6 +95,7 @@ impl DataSource {
                                 end_timestamp,
                                 host_contains,
                                 app_contains,
+                                message_regex,
                             },
                             &db_handle,
                         )?;
@@ -102,7 +104,9 @@ impl DataSource {
                 }
             }
             DataSource::Remote(base_url) => {
-                let api_key = String::from("123"); // # TODO
+                let stdin = io::stdin();
+                let mut api_key = String::new();
+                stdin.read_line(&mut api_key)?;
                 let api_config = eigenlog::ApiConfig {
                     base_url,
                     api_key,
@@ -120,6 +124,7 @@ impl DataSource {
                         end_timestamp,
                         host_contains,
                         app_contains,
+                        message_regex,
                     } => {
                         let query = api_config
                             .query(
@@ -130,6 +135,7 @@ impl DataSource {
                                     end_timestamp,
                                     host_contains,
                                     app_contains,
+                                    message_regex,
                                 },
                             )
                             .await?;
@@ -142,12 +148,12 @@ impl DataSource {
 }
 
 enum CmdResult {
-    Info(Vec<eigenlog::LogTreeInfo>),
+    Info(Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>),
     Query(Vec<eigenlog::QueryResponse>),
 }
 
-impl From<Vec<eigenlog::LogTreeInfo>> for CmdResult {
-    fn from(i: Vec<eigenlog::LogTreeInfo>) -> CmdResult {
+impl From<Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>> for CmdResult {
+    fn from(i: Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>) -> CmdResult {
         CmdResult::Info(i)
     }
 }
@@ -189,7 +195,14 @@ impl CmdResult {
             },
             PrintOptions::Table => match self {
                 CmdResult::Info(i) => {
-                    for row in info_to_table(i).lines() {
+                    let (table, errors) = info_to_table(i);
+                    println!("List of all trees in the database: ");
+                    for row in table.lines() {
+                        handle.write_all(row.as_bytes())?;
+                        handle.write_all("\n".as_bytes())?;
+                    }
+                    println!("Errors during listing of trees: ");
+                    for row in errors.lines() {
                         handle.write_all(row.as_bytes())?;
                         handle.write_all("\n".as_bytes())?;
                     }
@@ -220,33 +233,49 @@ enum Cmd {
         host_contains: Option<eigenlog::Host>,
         #[structopt(short = "a", long = "app")]
         app_contains: Option<eigenlog::App>,
+        #[structopt(short = "m", long = "message")]
+        message_regex: Option<String>,
     },
 }
 
-fn info_to_table(info: Vec<eigenlog::LogTreeInfo>) -> comfy_table::Table {
+fn info_to_table(
+    info: Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>,
+) -> (comfy_table::Table, comfy_table::Table) {
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["Host", "App", "Level", "Min", "Max"]);
+
+    let mut errors = comfy_table::Table::new();
+    errors.set_header(vec!["Message"]);
+
     for row in info {
-        table.add_row(vec![
-            row.host.to_string(),
-            row.app.to_string(),
-            row.level.to_string(),
-            row.min.to_string(),
-            row.max.to_string(),
-        ]);
+        match row {
+            Ok(row) => {
+                table.add_row(vec![
+                    row.host.to_string(),
+                    row.app.to_string(),
+                    row.level.to_string(),
+                    row.min.to_string(),
+                    row.max.to_string(),
+                ]);
+            }
+            Err(e) => {
+                errors.add_row(vec![e.to_string()]);
+            }
+        }
     }
-    table
+    (table, errors)
 }
 
 fn data_to_table(data: Vec<eigenlog::QueryResponse>) -> comfy_table::Table {
     let mut table = comfy_table::Table::new();
-    table.set_header(vec!["Host", "App", "Level", "ID", "Message"]);
+    table.set_header(vec!["Host", "App", "Level", "ID", "ID Time", "Message"]);
     for row in data {
         table.add_row(vec![
             row.host.to_string(),
             row.app.to_string(),
             row.level.to_string(),
             row.id.to_string(),
+            row.id.datetime().to_string(),
             row.data.message.to_string(),
         ]);
     }
@@ -258,10 +287,6 @@ async fn main() -> anyhow::Result<()> {
     let app_config: App = structopt::StructOpt::from_args();
 
     let data_source = app_config.data_source()?;
-
-    // if let DataSource::Remote(_) = data_source {
-    //     return Err(anyhow::anyhow!("-u/--url is not yet supported"));
-    // }
 
     let result = data_source.run_cmd(app_config.cmd).await?;
 

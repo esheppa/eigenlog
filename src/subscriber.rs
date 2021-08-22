@@ -50,10 +50,9 @@ impl CacheLimit {
     fn should_send(
         &self,
         level: log::Level,
-        cache: &collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
+        batch: &collections::BTreeMap<ulid::Ulid, LogData>,
     ) -> bool {
-        let current_len = cache.get(&level).map(|d| d.len()).unwrap_or(0);
-        self.get_limit(level) <= current_len + 1
+        batch.len() < self.get_limit(level)
     }
 }
 
@@ -69,31 +68,24 @@ impl Default for CacheLimit {
     }
 }
 
-// impl Subscriber {
-//     fn on_result<T, E>(&self, result: result::Result<T, E>) {
-//         let func = &self.on_result;
-//         func(result.map_err(|_| ()).map(|_| ()))
-//     }
-// }
-
 impl log::Log for Subscriber {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
         self.level >= metadata.level()
     }
     fn log(&self, record: &log::Record) {
         let res = self.sender.send((record.level(), record.into()));
-        if let Err(_) = res {
+        if res.is_err() {
             (self.on_result)("log_record_send_failure");
-        }    
+        }
     }
     fn flush(&self) {
         let (tx, rx) = std::sync::mpsc::sync_channel(0);
         let res = self.flush_requester.send(tx);
-        if let Err(_) = res {
+        if res.is_err() {
             (self.on_result)("flush_request_failure");
         }
         let res = rx.recv();
-        if let Err(_) = res {
+        if res.is_err() {
             (self.on_result)("flush_response_failure");
         }
     }

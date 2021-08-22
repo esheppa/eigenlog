@@ -19,10 +19,12 @@ async fn main() -> anyhow::Result<()> {
     let info = server::create_info_endpoint(db.clone(), api_keys.clone());
     let submit = server::create_submission_endpoint(db.clone(), api_keys.clone());
     let query = server::create_query_endpoint(db.clone(), api_keys.clone());
-    warp::serve(warp::path(BASE_URL).and(info.or(query).or(submit))
-    .with(warp::log("server"))
-        )
-        .bind(([127u8, 0, 0, 1], 8080u16))
-        .await;
+    warp::serve(
+        warp::path(BASE_URL)
+            .and(info.or(query).or(submit))
+            .with(warp::log("server")),
+    )
+    .bind(([127u8, 0, 0, 1], 8080u16))
+    .await;
     Ok(())
 }

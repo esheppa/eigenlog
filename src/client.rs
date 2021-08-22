@@ -33,7 +33,10 @@ impl ApiConfig {
         Ok(bincode::deserialize(&resp)?)
     }
 
-    pub async fn info(&self, client: &reqwest::Client) -> Result<Vec<LogTreeInfo>> {
+    pub async fn info(
+        &self,
+        client: &reqwest::Client,
+    ) -> Result<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>> {
         let url = format!("{}/info", self.base_url);
 
         let mut headers = header::HeaderMap::new();

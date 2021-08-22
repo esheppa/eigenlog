@@ -50,6 +50,23 @@ pub struct DataSender {
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
 }
 
+impl Drop for DataSender {
+    fn drop(&mut self) {
+        eprintln!("Dropping log sender");
+        let cache = std::mem::take(&mut self.cache);
+
+        if cache.values().any(|val| !val.is_empty()) {
+            eprintln!("Printing remaining cached values that were not sent to the remote:")
+        }
+
+        for (level, data) in cache {
+            for (id, msg) in data {
+                eprintln!("{} {}: {:?}", level, id, msg);
+            }
+        }
+    }
+}
+
 async fn send_batch(
     client: &reqwest::Client,
     config: &ApiConfig,
@@ -116,32 +133,44 @@ impl DataSender {
 
         let mut tasks = futures::stream::FuturesUnordered::new();
 
+        let mut generator = ulid::Generator::new();
+
         loop {
             let log_data = receiver.recv();
             let flush_req = flush_request.recv();
 
             tokio::select! {
                 Some((level, data)) = log_data => {
-                if cache_limit.should_send(level, &cache) {
+                    eprintln!("Recieved log msg: {:?} - {:?}", level, data);
 
-                let mut generator = ulid::Generator::new();
+                    let mut batch = cache.remove(&level).unwrap_or_default();
 
+                    batch.insert(generator.generate()?, data);
 
-                let mut batch = cache.remove(&level).unwrap_or_default();
-                batch.insert(generator.generate()?, data);
+                    if cache_limit.should_send(level, &batch) {
+                        eprintln!("Sending batch");
 
-                tasks.push(send_batch(&subscriber, &api_config, &host, &app, level, batch))
-                }
+                        if let Err(e) = send_batch(&subscriber, &api_config, &host, &app, level, batch).await {
+                            eprintln!("Error sending batch: {:?}", e);
+                        }
+                    }
 
+                    if let Some(Err(e)) = tasks.next().await {
+                        eprintln!("Error polling futures unordered: {:?}", e);
+                    }
 
                 }
                 Some(sender) = flush_req => {
-                for (level, batch) in cache.drain() {
-                    tasks.push(send_batch(&subscriber, &api_config, &host, &app, level, batch))
-                }
-                sender.send(())?;
+                    eprintln!("Fush req");
+
+                    for (level, batch) in cache.drain() {
+                        tasks.push(send_batch(&subscriber, &api_config, &host, &app, level, batch))
+                    }
+                    sender.send(())?;
                 }
                 Some(_) = tasks.next() => {
+                    eprintln!("Polling futures unordered");
+
                 // Do nothing. We must have this so that we drive the FuturesUnordered to completion, however.
                 }
             }

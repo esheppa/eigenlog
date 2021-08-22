@@ -8,7 +8,7 @@ async fn main() -> anyhow::Result<()> {
     let error_handler = Box::new(|err| eprintln!("Error from logging subscriber: {}", err));
     let sender_error_handler = Box::new(|e| eprintln!("Error from data sender {}", e));
     let api_config = eigenlog::ApiConfig {
-        base_url: reqwest::Url::parse("http://127.0.0.1/log")?,
+        base_url: reqwest::Url::parse("http://127.0.0.1:8080/log")?,
         api_key: "123".to_string(),
         serialization_format: eigenlog::SerializationFormat::Bincode,
     };
@@ -31,12 +31,14 @@ async fn main() -> anyhow::Result<()> {
     subscriber.set_logger(log::LevelFilter::Trace)?;
 
     let log_generator = async {
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
         let mut generator = names::Generator::default();
 
         for i in 1..10000 {
             log::info!("{}: {}", i, generator.next().unwrap());
         }
         println!("Generated 10000 logs");
+        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
     };
 
     tokio::select! {

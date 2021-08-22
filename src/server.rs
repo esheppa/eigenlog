@@ -116,7 +116,7 @@ async fn info(
     // vec LogTreeInfo isn't that nice, but
     // it is the best option when using JSON serialization.
     // for Bincode or RON there could be another endpoint.
-) -> Result<AppReply<Vec<LogTreeInfo>>> {
+) -> Result<AppReply<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>>> {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
@@ -174,7 +174,10 @@ pub fn create_query_endpoint(
 pub fn create_info_endpoint(
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
-) -> impl warp::Filter<Extract = (AppReply<Vec<LogTreeInfo>>,), Error = warp::Rejection> + Clone {
+) -> impl warp::Filter<
+    Extract = (AppReply<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>>,),
+    Error = warp::Rejection,
+> + Clone {
     warp::path("info")
         .and(warp::get())
         .and(warp::path::end())

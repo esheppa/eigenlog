@@ -10,7 +10,7 @@
 
 use http::header;
 use once_cell::sync as once_cell;
-use std::{collections, fmt, iter, result, str};
+use std::{collections, error, fmt, iter, result, str};
 
 #[cfg(feature = "client")]
 pub mod client;
@@ -176,6 +176,7 @@ pub struct QueryParams {
     pub end_timestamp: Option<chrono::DateTime<chrono::Utc>>,
     pub host_contains: Option<Host>,
     pub app_contains: Option<App>,
+    pub message_regex: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -187,9 +188,36 @@ pub struct QueryResponse {
     pub data: LogData,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct Host {
     name: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct HostParseError {
+    msg: String,
+}
+
+impl serde::Serialize for Host {
+    fn serialize<S>(&self, serializer: S) -> result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.name)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Host {
+    fn deserialize<D>(deserializer: D) -> result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let st = String::deserialize(deserializer)?;
+
+        let host = st.parse().map_err(serde::de::Error::custom)?;
+
+        Ok(host)
+    }
 }
 
 impl AsRef<str> for Host {
@@ -202,17 +230,19 @@ static HOST_REGEX: once_cell::Lazy<regex::Regex> =
     once_cell::Lazy::new(|| regex::Regex::new("[A-Za-z0-9]+").unwrap());
 
 impl std::str::FromStr for Host {
-    type Err = String;
+    type Err = HostParseError;
     fn from_str(s: &str) -> result::Result<Self, Self::Err> {
         if HOST_REGEX.is_match(s) {
             Ok(Host {
                 name: s.to_string(),
             })
         } else {
-            Err(format!(
-                "Host name `{}` contains characters outisde the range of `[A-Za-z0-9]`",
-                s
-            ))
+            Err(HostParseError {
+                msg: format!(
+                    "Host name `{}` contains characters outisde the range of `[A-Za-z0-9]`",
+                    s
+                ),
+            })
         }
     }
 }
@@ -223,9 +253,44 @@ impl fmt::Display for Host {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+impl fmt::Display for HostParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "host parse error: {}", self.msg)
+    }
+}
+
+impl error::Error for HostParseError {}
+
+#[derive(Clone, Debug)]
 pub struct App {
     name: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct AppParseError {
+    msg: String,
+}
+
+impl serde::Serialize for App {
+    fn serialize<S>(&self, serializer: S) -> result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.name)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for App {
+    fn deserialize<D>(deserializer: D) -> result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let st = String::deserialize(deserializer)?;
+
+        let app = st.parse().map_err(serde::de::Error::custom)?;
+
+        Ok(app)
+    }
 }
 
 impl AsRef<str> for App {
@@ -235,17 +300,19 @@ impl AsRef<str> for App {
 }
 
 impl std::str::FromStr for App {
-    type Err = String;
+    type Err = AppParseError;
     fn from_str(s: &str) -> result::Result<Self, Self::Err> {
         if HOST_REGEX.is_match(s) {
             Ok(App {
                 name: s.to_string(),
             })
         } else {
-            Err(format!(
-                "App name `{}` contains characters outisde the range of `[A-Za-z0-9]`",
-                s
-            ))
+            Err(AppParseError {
+                msg: format!(
+                    "App name `{}` contains characters outisde the range of `[A-Za-z0-9]`",
+                    s
+                ),
+            })
         }
     }
 }
@@ -255,6 +322,14 @@ impl fmt::Display for App {
         write!(f, "{}", self.name)
     }
 }
+
+impl fmt::Display for AppParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "app parse error: {}", self.msg)
+    }
+}
+
+impl error::Error for AppParseError {}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Level {
@@ -378,4 +453,7 @@ pub enum Error {
 
     #[error("Setting logger: {0}")]
     Log(#[from] log::SetLoggerError),
+
+    #[error("Parse log tree info: {0}")]
+    ParseLogTreeInfo(String),
 }
