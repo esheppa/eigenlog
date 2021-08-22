@@ -52,6 +52,11 @@ pub struct DataSender {
 
 impl Drop for DataSender {
     fn drop(&mut self) {
+        // #TODO: dump the contents of the channels here to make sure messages are processed
+        // tokio::task::block_in_place(|| {
+
+        // });
+
         eprintln!("Dropping log sender");
         let cache = std::mem::take(&mut self.cache);
 
