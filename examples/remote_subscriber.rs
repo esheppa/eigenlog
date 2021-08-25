@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
         .parse::<eigenlog::App>()
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    let (subscriber, data_sender) = subscriber::Subscriber::new_remote(
+    let (subscriber, mut data_sender) = subscriber::Subscriber::new_remote(
         error_handler,
         api_config,
         host,
@@ -28,7 +28,7 @@ async fn main() -> anyhow::Result<()> {
         subscriber::CacheLimit::default(),
     );
 
-    subscriber.set_logger(log::LevelFilter::Trace)?;
+    subscriber.set_logger(log::LevelFilter::Info)?;
 
     let log_generator = async {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -36,6 +36,7 @@ async fn main() -> anyhow::Result<()> {
 
         for i in 1..10000 {
             log::info!("{}: {}", i, generator.next().unwrap());
+            // tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         }
         println!("Generated 10000 logs");
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -49,6 +50,8 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("Log generator exited");
         }
     };
+
+    data_sender.flush().await?;
 
     Ok(())
 }

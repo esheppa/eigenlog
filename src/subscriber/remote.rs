@@ -29,6 +29,7 @@ impl Subscriber {
                 app,
                 cache_limit,
                 cache: Default::default(),
+                send_cache: Default::default(),
             },
         )
     }
@@ -48,31 +49,12 @@ pub struct DataSender {
     cache_limit: CacheLimit,
 
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
+
+    send_cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
+
 }
 
-impl Drop for DataSender {
-    fn drop(&mut self) {
-        // #TODO: dump the contents of the channels here to make sure messages are processed
-        // tokio::task::block_in_place(|| {
-
-        // });
-
-        eprintln!("Dropping log sender");
-        let cache = std::mem::take(&mut self.cache);
-
-        if cache.values().any(|val| !val.is_empty()) {
-            eprintln!("Printing remaining cached values that were not sent to the remote:")
-        }
-
-        for (level, data) in cache {
-            for (id, msg) in data {
-                eprintln!("{} {}: {:?}", level, id, msg);
-            }
-        }
-    }
-}
-
-async fn send_batch(
+async fn send_batch_err(
     client: &reqwest::Client,
     config: &ApiConfig,
     host: &Host,
@@ -102,8 +84,21 @@ async fn send_batch(
     Ok(())
 }
 
+async fn send_batch(
+    client: &reqwest::Client,
+    config: &ApiConfig,
+    host: &Host,
+    app: &App,
+    level: log::Level,
+    batch: LogBatch,
+) {
+    if let Err(e) = send_batch_err(client, config, host, app, level, batch).await {
+        eprintln!("Error sending batch: {:?}", e);
+    }
+}
+
 impl DataSender {
-    pub async fn run_forever<OnError>(mut self, mut func: OnError)
+    pub async fn run_forever<OnError>(&mut self, mut func: OnError)
     where
         OnError: FnMut(Error),
     {
@@ -112,6 +107,34 @@ impl DataSender {
                 func(e)
             }
         }
+    }
+
+    pub async fn flush(self) -> Result<()> {
+        let DataSender {
+            api_config,
+            send_cache,
+            host,
+            app,
+            ..
+        } = self;
+
+        let mut headers = header::HeaderMap::new();
+        headers.insert(
+            header::HeaderName::from_static(API_KEY_HEADER),
+            header::HeaderValue::from_str(&api_config.api_key)?,
+        );
+        let subscriber = reqwest::ClientBuilder::new()
+            .default_headers(headers)
+            .build()?;
+
+        let tasks = futures::stream::FuturesUnordered::new();
+
+        for (level, batch) in send_cache {
+            println!("Flushing {}: {}", level, batch.len());
+            tasks.push(send_batch(&subscriber, &api_config, &host, &app, level, batch));
+        }
+        tasks.for_each(|_| async {}).await;
+        Ok(())
     }
 
     pub async fn run(&mut self) -> Result<()> {
@@ -125,7 +148,10 @@ impl DataSender {
             cache,
             host,
             app,
+            send_cache,
         } = self;
+
+        let _ = flush_request; // we can ignore as we have our own flush?
 
         let mut headers = header::HeaderMap::new();
         headers.insert(
@@ -136,49 +162,93 @@ impl DataSender {
             .default_headers(headers)
             .build()?;
 
-        let mut tasks = futures::stream::FuturesUnordered::new();
 
         let mut generator = ulid::Generator::new();
 
-        loop {
-            let log_data = receiver.recv();
-            let flush_req = flush_request.recv();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
 
-            tokio::select! {
-                Some((level, data)) = log_data => {
-                    eprintln!("Recieved log msg: {:?} - {:?}", level, data);
+        let sub_recv = async {
+            while let Some((level, data)) = receiver.recv().await {
+                // eprintln!("Recieved log msg: {:?} - {:?}", level, data);
 
-                    let mut batch = cache.remove(&level).unwrap_or_default();
+                let mut batch = cache.remove(&level).unwrap_or_default();
 
-                    batch.insert(generator.generate()?, data);
+                batch.insert(generator.generate().unwrap(), data);
 
-                    if cache_limit.should_send(level, &batch) {
-                        eprintln!("Sending batch");
-
-                        if let Err(e) = send_batch(&subscriber, &api_config, &host, &app, level, batch).await {
-                            eprintln!("Error sending batch: {:?}", e);
-                        }
-                    }
-
-                    if let Some(Err(e)) = tasks.next().await {
-                        eprintln!("Error polling futures unordered: {:?}", e);
-                    }
-
-                }
-                Some(sender) = flush_req => {
-                    eprintln!("Fush req");
-
-                    for (level, batch) in cache.drain() {
-                        tasks.push(send_batch(&subscriber, &api_config, &host, &app, level, batch))
-                    }
-                    sender.send(())?;
-                }
-                Some(_) = tasks.next() => {
-                    eprintln!("Polling futures unordered");
-
-                // Do nothing. We must have this so that we drive the FuturesUnordered to completion, however.
+                if cache_limit.should_send(level, &batch) {
+                    let _ =tx.send((level, batch));
                 }
             }
-        }
+        };
+
+        let send_do = async {
+            loop {
+                for (level, batch) in send_cache.iter_mut() {
+                    if cache_limit.should_send(*level, batch) {
+                        println!("Sending batch for {}", level);
+                        let batch = std::mem::take(batch);
+                        send_batch(&subscriber, &api_config, &host, &app, *level, batch).await;
+                    }
+                }
+
+                let recv_batch = rx.recv();
+
+                tokio::select! {
+                    Some((level, batch)) = recv_batch => {
+                        send_cache.insert(level, batch);
+                    }
+                }
+            }
+        };
+
+        futures::future::join(sub_recv, send_do).await;
+
+        Ok(())
+
+        // loop {
+        //     let log_data = ;
+        //     let flush_req = flush_request.recv();
+
+
+        //     tokio::select! {
+        //         Some((level, data)) = log_data => {
+        //             eprintln!("Recieved log msg: {:?} - {:?}", level, data);
+
+        //             let mut batch = cache.remove(&level).unwrap_or_default();
+
+        //             batch.insert(generator.generate()?, data);
+
+        //             if cache_limit.should_send(level, &batch) && tasks.is_empty() {
+        //                 tasks.push(send_batch(&subscriber, &api_config, &host, &app, level, batch));
+        //             }
+        //         }
+        //         Some(sender) = flush_req => {
+        //             eprintln!("Fush req");
+
+        //             for (level, batch) in cache.drain() {
+        //                 send_batch(&subscriber, &api_config, &host, &app, level, batch).await;
+        //             }
+        //             sender.send(())?;
+        //         }
+        //         _ = tasks.next() => {
+        //             println!("Tasks::next");
+
+        //             // Do nothing. We must have this so that we drive the FuturesUnordered to completion, however.
+        //         }
+        //         _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+        //             println!("Wakeup");
+        //             // check if tasks is back to 0 and we have batches to send
+
+        //             for (level, batch) in cache.iter_mut() {
+        //                 if cache_limit.should_send(*level, batch) && tasks.is_empty() {
+        //                     let batch = std::mem::take(batch);
+        //                     tasks.push(send_batch(&subscriber, &api_config, &host, &app, *level, batch));
+        //                     // no point checking the rest
+        //                     break;
+        //                 }
+        //             }
+        //         }
+        //     };
+        // }
     }
 }
