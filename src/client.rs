@@ -38,7 +38,7 @@ impl ApiConfig {
         client: &reqwest::Client,
         host: &Host,
         app: &App,
-        level: Level,    
+        level: Level,
     ) -> Result<LogTreeDetail> {
         let url = format!("{}/detail/{}/{}/{}", self.base_url, host, app, level);
 

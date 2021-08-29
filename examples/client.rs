@@ -80,17 +80,8 @@ impl DataSource {
                         let info = db::info(&db_handle)?;
                         Ok(info.into())
                     }
-                    Cmd::Detail {
-                        host,
-                        app,
-                        level,
-                    } => {
-                        let detail = db::detail(
-                            &host,
-                            &app, 
-                            level,
-                            &db_handle,
-                        )?;
+                    Cmd::Detail { host, app, level } => {
+                        let detail = db::detail(&host, &app, level, &db_handle)?;
                         Ok(detail.into())
                     }
                     Cmd::Query {
@@ -131,19 +122,8 @@ impl DataSource {
                         let info = api_config.info(&client).await?;
                         Ok(info.into())
                     }
-                    Cmd::Detail {
-                        host,
-                        app,
-                        level,
-                    } => {
-                        let detail = api_config
-                            .detail(
-                                &client,
-                                &host,
-                                &app,
-                                level,
-                            )
-                            .await?;
+                    Cmd::Detail { host, app, level } => {
+                        let detail = api_config.detail(&client, &host, &app, level).await?;
                         Ok(detail.into())
                     }
                     Cmd::Query {
@@ -199,7 +179,6 @@ impl From<eigenlog::LogTreeDetail> for CmdResult {
     }
 }
 
-
 impl CmdResult {
     fn write_out(self, output_format: PrintOptions) -> anyhow::Result<()> {
         let stdout = io::stdout();
@@ -215,7 +194,10 @@ impl CmdResult {
                     }
                     CmdResult::Detail(det) => {
                         for (date, rows) in det.row_detail {
-                            writer.write_byte_record(&csv::StringRecord::from(vec![date.to_string(), rows.to_string()]).into_byte_record())?;
+                            writer.write_byte_record(
+                                &csv::StringRecord::from(vec![date.to_string(), rows.to_string()])
+                                    .into_byte_record(),
+                            )?;
                         }
                     }
                     CmdResult::Query(query) => {
@@ -258,7 +240,10 @@ impl CmdResult {
                     }
                 }
                 CmdResult::Detail(d) => {
-                    println!("Detail for {}/{}/{} ({} total rows)", d.host, d.app, d.level, d.rows);
+                    println!(
+                        "Detail for {}/{}/{} ({} total rows)",
+                        d.host, d.app, d.level, d.rows
+                    );
                     for row in detail_to_table(d).lines() {
                         handle.write_all(row.as_bytes())?;
                         handle.write_all("\n".as_bytes())?;
@@ -294,7 +279,7 @@ enum Cmd {
         app: eigenlog::App,
         #[structopt(short = "l", long = "level")]
         level: eigenlog::Level,
-    }
+    },
 }
 
 fn info_to_table(
@@ -329,10 +314,7 @@ fn detail_to_table(data: eigenlog::LogTreeDetail) -> comfy_table::Table {
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["Date", "Rows"]);
     for (date, rows) in data.row_detail {
-        table.add_row(vec![
-            date.to_string(),
-            rows.to_string(),
-        ]);
+        table.add_row(vec![date.to_string(), rows.to_string()]);
     }
     table
 }

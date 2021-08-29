@@ -2,7 +2,7 @@ use super::*;
 use futures::FutureExt;
 use reqwest::header;
 
-use std::{task, pin};
+use std::{pin, task};
 
 impl Subscriber {
     pub fn new_remote(
@@ -54,8 +54,8 @@ pub struct DataSender {
 
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
 
-    sender: Option<pin::Pin<Box<dyn futures::Future<Output=()>>>>,
-    
+    sender: Option<pin::Pin<Box<dyn futures::Future<Output = ()>>>>,
+
     generator: ulid::Generator,
 }
 
@@ -73,7 +73,8 @@ async fn send_batch_err(
     );
     let client = reqwest::ClientBuilder::new()
         .default_headers(headers)
-        .build().expect("Should succeed");
+        .build()
+        .expect("Should succeed");
 
     let url = format!(
         "{base}/submit/{host}/{app}/{level}",
@@ -97,19 +98,11 @@ async fn send_batch_err(
     Ok(())
 }
 
-async fn send_batch(
-    config: ApiConfig,
-    host: Host,
-    app: App,
-    level: log::Level,
-    batch: LogBatch,
-) {
+async fn send_batch(config: ApiConfig, host: Host, app: App, level: log::Level, batch: LogBatch) {
     if let Err(e) = send_batch_err(config, host, app, level, batch).await {
         eprintln!("Error sending batch: {:?}", e);
     }
 }
-
-
 
 impl Drop for DataSender {
     fn drop(&mut self) {
@@ -121,18 +114,19 @@ impl Drop for DataSender {
 
         let handle = std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build().unwrap();
+                .enable_all()
+                .build()
+                .unwrap();
             rt.block_on(async {
                 while let Ok(msg) = rx.recv() {
                     if let Some((level, batch)) = msg {
-                        send_batch(api_config.clone(), host.clone(), app.clone(), level, batch).await;
+                        send_batch(api_config.clone(), host.clone(), app.clone(), level, batch)
+                            .await;
                     } else {
                         break;
                     }
                 }
             });
-
         });
 
         for (level, batch) in cache {
@@ -149,22 +143,21 @@ impl Drop for DataSender {
 // on sending the batches to the remote server but still recieving new batches as fast as possible
 impl futures::Future for DataSender {
     type Output = ();
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
         match self.receiver.poll_recv(cx) {
-
             // do nothing, will will return a pending later if needed
             task::Poll::Pending => (),
-            
+
             // recieved a new log message, add it to the cache
             task::Poll::Ready(Some((level, data))) => {
-
                 let mut batch = self.cache.remove(&level).unwrap_or_default();
 
                 batch.insert(self.generator.generate().unwrap(), data);
 
                 self.cache.insert(level, batch);
-
             }
             // if channel is hung up on, complete the future
             task::Poll::Ready(None) => return task::Poll::Ready(()),
@@ -184,12 +177,17 @@ impl futures::Future for DataSender {
                     for (level, batch) in detached_cache.iter_mut() {
                         if self.cache_limit.should_send(*level, batch) {
                             let batch = std::mem::take(batch);
-                            self.sender = Some(Box::pin(send_batch(self.api_config.clone(), self.host.clone(), self.app.clone(), *level, batch)));
+                            self.sender = Some(Box::pin(send_batch(
+                                self.api_config.clone(),
+                                self.host.clone(),
+                                self.app.clone(),
+                                *level,
+                                batch,
+                            )));
                             break;
                         }
                     }
                     self.cache = detached_cache;
-
                 }
             }
         } else {
@@ -197,7 +195,13 @@ impl futures::Future for DataSender {
             for (level, batch) in detached_cache.iter_mut() {
                 if self.cache_limit.should_send(*level, batch) {
                     let batch = std::mem::take(batch);
-                    self.sender = Some(Box::pin(send_batch(self.api_config.clone(), self.host.clone(), self.app.clone(), *level, batch)));
+                    self.sender = Some(Box::pin(send_batch(
+                        self.api_config.clone(),
+                        self.host.clone(),
+                        self.app.clone(),
+                        *level,
+                        batch,
+                    )));
                     break;
                 }
             }
@@ -206,5 +210,4 @@ impl futures::Future for DataSender {
 
         task::Poll::Pending
     }
-    
 }

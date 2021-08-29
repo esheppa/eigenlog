@@ -213,7 +213,6 @@ pub fn create_detail_endpoint(
         })
 }
 
-
 pub fn create_info_endpoint(
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
