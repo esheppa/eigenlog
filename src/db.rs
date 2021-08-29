@@ -34,7 +34,7 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
     let relevant_trees = db
         .tree_names()
         .iter()
-        .filter_map(|t| TreeName::from_bytes(&t).ok())
+        .filter_map(|t| TreeName::from_bytes(t).ok())
         .filter(|t| filter_with_option(&t.host, &params.host_contains))
         .filter(|t| filter_with_option(&t.app, &params.app_contains))
         .filter(|t| t.level <= params.max_log_level.clone().unwrap_or(Level::Info))
@@ -83,6 +83,29 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
     Ok(response)
 }
 
+pub fn detail(host: &Host, app: &App, level: Level, db: &sled::Db) -> Result<LogTreeDetail> {
+    let tree = db.open_tree(level.get_tree_name(host, app))?;
+
+    let (rows, row_detail) =
+        tree.iter()
+            .try_fold((0, collections::BTreeMap::new()), |(r, mut rd), item| {
+                let (key, _) = item?;
+                let ulid_key = ulid::Ulid::from(ivec_be_to_u128(key)?);
+                rd.entry(ulid_key.datetime().naive_local().date())
+                    .and_modify(|c| *c += 1)
+                    .or_default();
+                Ok::<_, crate::Error>((r + 1, rd))
+            })?;
+
+    Ok(LogTreeDetail {
+        app: app.clone(),
+        host: host.clone(),
+        level,
+        rows,
+        row_detail,
+    })
+}
+
 #[derive(thiserror::Error, Debug, serde::Deserialize, serde::Serialize)]
 #[error("Parse log tree info: {0}")]
 pub struct ParseLogTreeInfoError(String);
@@ -95,7 +118,7 @@ pub fn info(db: &sled::Db) -> Result<Vec<result::Result<LogTreeInfo, ParseLogTre
         .into_iter()
         .filter(|n| n != b"__sled__default")
     {
-        match tree_name_to_info(&db, name.clone()) {
+        match tree_name_to_info(db, name.clone()) {
             Ok(Some(info)) => {
                 db_info.push(Ok(info));
             }

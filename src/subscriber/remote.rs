@@ -1,6 +1,8 @@
 use super::*;
-use futures::stream::StreamExt;
+use futures::FutureExt;
 use reqwest::header;
+
+use std::{task, pin};
 
 impl Subscriber {
     pub fn new_remote(
@@ -29,12 +31,14 @@ impl Subscriber {
                 app,
                 cache_limit,
                 cache: Default::default(),
-                send_cache: Default::default(),
+                sender: None,
+                generator: ulid::Generator::new(),
             },
         )
     }
 }
 
+#[must_use]
 pub struct DataSender {
     receiver: mpsc::UnboundedReceiver<(log::Level, LogData)>,
 
@@ -50,18 +54,27 @@ pub struct DataSender {
 
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
 
-    send_cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
-
+    sender: Option<pin::Pin<Box<dyn futures::Future<Output=()>>>>,
+    
+    generator: ulid::Generator,
 }
 
 async fn send_batch_err(
-    client: &reqwest::Client,
-    config: &ApiConfig,
-    host: &Host,
-    app: &App,
+    config: ApiConfig,
+    host: Host,
+    app: App,
     level: log::Level,
     batch: LogBatch,
 ) -> result::Result<(), Error> {
+    let mut headers = header::HeaderMap::new();
+    headers.insert(
+        header::HeaderName::from_static(API_KEY_HEADER),
+        header::HeaderValue::from_str(&config.api_key).expect("Valid header key"),
+    );
+    let client = reqwest::ClientBuilder::new()
+        .default_headers(headers)
+        .build().expect("Should succeed");
+
     let url = format!(
         "{base}/submit/{host}/{app}/{level}",
         base = config.base_url,
@@ -85,170 +98,113 @@ async fn send_batch_err(
 }
 
 async fn send_batch(
-    client: &reqwest::Client,
-    config: &ApiConfig,
-    host: &Host,
-    app: &App,
+    config: ApiConfig,
+    host: Host,
+    app: App,
     level: log::Level,
     batch: LogBatch,
 ) {
-    if let Err(e) = send_batch_err(client, config, host, app, level, batch).await {
+    if let Err(e) = send_batch_err(config, host, app, level, batch).await {
         eprintln!("Error sending batch: {:?}", e);
     }
 }
 
-impl DataSender {
-    pub async fn run_forever<OnError>(&mut self, mut func: OnError)
-    where
-        OnError: FnMut(Error),
-    {
-        loop {
-            if let Err(e) = self.run().await {
-                func(e)
-            }
-        }
-    }
-
-    pub async fn flush(self) -> Result<()> {
-        let DataSender {
-            api_config,
-            send_cache,
-            host,
-            app,
-            ..
-        } = self;
-
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::HeaderName::from_static(API_KEY_HEADER),
-            header::HeaderValue::from_str(&api_config.api_key)?,
-        );
-        let subscriber = reqwest::ClientBuilder::new()
-            .default_headers(headers)
-            .build()?;
-
-        let tasks = futures::stream::FuturesUnordered::new();
-
-        for (level, batch) in send_cache {
-            println!("Flushing {}: {}", level, batch.len());
-            tasks.push(send_batch(&subscriber, &api_config, &host, &app, level, batch));
-        }
-        tasks.for_each(|_| async {}).await;
-        Ok(())
-    }
-
-    pub async fn run(&mut self) -> Result<()> {
-        // each time we recieve a new log message, check the size of the cache and send if required
-
-        let DataSender {
-            receiver,
-            flush_request,
-            api_config,
-            cache_limit,
-            cache,
-            host,
-            app,
-            send_cache,
-        } = self;
-
-        let _ = flush_request; // we can ignore as we have our own flush?
-
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::HeaderName::from_static(API_KEY_HEADER),
-            header::HeaderValue::from_str(&api_config.api_key)?,
-        );
-        let subscriber = reqwest::ClientBuilder::new()
-            .default_headers(headers)
-            .build()?;
 
 
-        let mut generator = ulid::Generator::new();
+impl Drop for DataSender {
+    fn drop(&mut self) {
+        let cache = std::mem::take(&mut self.cache);
+        let api_config = self.api_config.clone();
+        let host = self.host.clone();
+        let app = self.app.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
 
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-
-        let sub_recv = async {
-            while let Some((level, data)) = receiver.recv().await {
-                // eprintln!("Recieved log msg: {:?} - {:?}", level, data);
-
-                let mut batch = cache.remove(&level).unwrap_or_default();
-
-                batch.insert(generator.generate().unwrap(), data);
-
-                if cache_limit.should_send(level, &batch) {
-                    let _ =tx.send((level, batch));
-                }
-            }
-        };
-
-        let send_do = async {
-            loop {
-                for (level, batch) in send_cache.iter_mut() {
-                    if cache_limit.should_send(*level, batch) {
-                        println!("Sending batch for {}", level);
-                        let batch = std::mem::take(batch);
-                        send_batch(&subscriber, &api_config, &host, &app, *level, batch).await;
+        let handle = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build().unwrap();
+            rt.block_on(async {
+                while let Ok(msg) = rx.recv() {
+                    if let Some((level, batch)) = msg {
+                        send_batch(api_config.clone(), host.clone(), app.clone(), level, batch).await;
+                    } else {
+                        break;
                     }
                 }
+            });
 
-                let recv_batch = rx.recv();
+        });
 
-                tokio::select! {
-                    Some((level, batch)) = recv_batch => {
-                        send_cache.insert(level, batch);
+        for (level, batch) in cache {
+            let _ = tx.send(Some((level, batch)));
+        }
+
+        let _ = tx.send(None);
+
+        let _ = handle.join();
+    }
+}
+
+// We impl Future rather than using async fn's here as this allows more granular control
+// on sending the batches to the remote server but still recieving new batches as fast as possible
+impl futures::Future for DataSender {
+    type Output = ();
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
+        
+        match self.receiver.poll_recv(cx) {
+
+            // do nothing, will will return a pending later if needed
+            task::Poll::Pending => (),
+            
+            // recieved a new log message, add it to the cache
+            task::Poll::Ready(Some((level, data))) => {
+
+                let mut batch = self.cache.remove(&level).unwrap_or_default();
+
+                batch.insert(self.generator.generate().unwrap(), data);
+
+                self.cache.insert(level, batch);
+
+            }
+            // if channel is hung up on, complete the future
+            task::Poll::Ready(None) => return task::Poll::Ready(()),
+        }
+
+        if let Some(mut fut) = self.sender.take() {
+            match fut.poll_unpin(cx) {
+                // current send isn't yet finished
+                task::Poll::Pending => {
+                    self.sender = Some(fut);
+                }
+                // previous send has finished, ready for the next one
+                task::Poll::Ready(()) => {
+                    // due to Error having the smallest associated value
+                    // Error's will be sent in preference
+                    let mut detached_cache = std::mem::take(&mut self.cache);
+                    for (level, batch) in detached_cache.iter_mut() {
+                        if self.cache_limit.should_send(*level, batch) {
+                            let batch = std::mem::take(batch);
+                            self.sender = Some(Box::pin(send_batch(self.api_config.clone(), self.host.clone(), self.app.clone(), *level, batch)));
+                            break;
+                        }
                     }
+                    self.cache = detached_cache;
+
                 }
             }
-        };
+        } else {
+            let mut detached_cache = std::mem::take(&mut self.cache);
+            for (level, batch) in detached_cache.iter_mut() {
+                if self.cache_limit.should_send(*level, batch) {
+                    let batch = std::mem::take(batch);
+                    self.sender = Some(Box::pin(send_batch(self.api_config.clone(), self.host.clone(), self.app.clone(), *level, batch)));
+                    break;
+                }
+            }
+            self.cache = detached_cache;
+        }
 
-        futures::future::join(sub_recv, send_do).await;
-
-        Ok(())
-
-        // loop {
-        //     let log_data = ;
-        //     let flush_req = flush_request.recv();
-
-
-        //     tokio::select! {
-        //         Some((level, data)) = log_data => {
-        //             eprintln!("Recieved log msg: {:?} - {:?}", level, data);
-
-        //             let mut batch = cache.remove(&level).unwrap_or_default();
-
-        //             batch.insert(generator.generate()?, data);
-
-        //             if cache_limit.should_send(level, &batch) && tasks.is_empty() {
-        //                 tasks.push(send_batch(&subscriber, &api_config, &host, &app, level, batch));
-        //             }
-        //         }
-        //         Some(sender) = flush_req => {
-        //             eprintln!("Fush req");
-
-        //             for (level, batch) in cache.drain() {
-        //                 send_batch(&subscriber, &api_config, &host, &app, level, batch).await;
-        //             }
-        //             sender.send(())?;
-        //         }
-        //         _ = tasks.next() => {
-        //             println!("Tasks::next");
-
-        //             // Do nothing. We must have this so that we drive the FuturesUnordered to completion, however.
-        //         }
-        //         _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
-        //             println!("Wakeup");
-        //             // check if tasks is back to 0 and we have batches to send
-
-        //             for (level, batch) in cache.iter_mut() {
-        //                 if cache_limit.should_send(*level, batch) && tasks.is_empty() {
-        //                     let batch = std::mem::take(batch);
-        //                     tasks.push(send_batch(&subscriber, &api_config, &host, &app, *level, batch));
-        //                     // no point checking the rest
-        //                     break;
-        //                 }
-        //             }
-        //         }
-        //     };
-        // }
+        task::Poll::Pending
     }
+    
 }

@@ -108,6 +108,29 @@ async fn query(
     }
 }
 
+async fn detail(
+    host: Host,
+    app: App,
+    level: Level,
+    api_key: String,
+    accept: SerializationFormat,
+    db: sled::Db,
+    api_keys: sync::Arc<collections::BTreeSet<String>>,
+) -> Result<AppReply<LogTreeDetail>> {
+    // ensure the request's API key is allowed
+    if !api_keys.contains(&api_key) {
+        return Err(Error::InvalidApiKey(api_key));
+    }
+
+    let response = db::detail(&host, &app, level, &db)?;
+
+    match accept {
+        SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
+        #[cfg(feature = "json")]
+        SerializationFormat::Json => Ok(AppReply::Json(response)),
+    }
+}
+
 async fn info(
     api_key: String,
     accept: SerializationFormat,
@@ -170,6 +193,26 @@ pub fn create_query_endpoint(
             query(key, accept, params, db, keys).map(error_to_reply)
         })
 }
+
+pub fn create_detail_endpoint(
+    db: sled::Db,
+    api_keys: sync::Arc<collections::BTreeSet<String>>,
+) -> impl warp::Filter<Extract = (AppReply<LogTreeDetail>,), Error = warp::Rejection> + Clone {
+    warp::path("detail")
+        .and(warp::get())
+        .and(warp::path::param()) // Host
+        .and(warp::path::param()) // App
+        .and(warp::path::param()) // Level
+        .and(warp::path::end())
+        .and(warp::header(API_KEY_HEADER))
+        .and(warp::header(header::ACCEPT.as_str()))
+        .and(add(db))
+        .and(add(api_keys))
+        .and_then(|host, app, level, key, accept, db, keys| {
+            detail(host, app, level, key, accept, db, keys).map(error_to_reply)
+        })
+}
+
 
 pub fn create_info_endpoint(
     db: sled::Db,

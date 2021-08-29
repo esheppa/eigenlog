@@ -11,7 +11,7 @@ pub struct Subscriber {
     sender: mpsc::UnboundedSender<(log::Level, LogData)>,
 
     // request a flush, will recieve () back when done
-    // innser sender is sync as this has to be handled from sync context
+    // inner sender is sync as this has to be handled from sync context
     flush_requester: mpsc::UnboundedSender<std::sync::mpsc::SyncSender<()>>,
 
     on_result: Box<dyn Fn(&'static str) + Sync + Send>,
@@ -88,5 +88,12 @@ impl log::Log for Subscriber {
         if res.is_err() {
             (self.on_result)("flush_response_failure");
         }
+    }
+}
+
+impl Drop for Subscriber {
+    fn drop(&mut self) {
+        eprintln!("Dropping log subscriber - sleeing the thread to give the sender time to empty the cache");
+        std::thread::sleep(std::time::Duration::from_secs(10));
     }
 }

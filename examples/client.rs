@@ -50,10 +50,10 @@ impl App {
     fn data_source(&self) -> anyhow::Result<DataSource> {
         match (&self.db_file, &self.server_url) {
             (Some(_), Some(_)) => {
-                return Err(anyhow::anyhow!("-d/--database and -u/--url are mutually exclusive, please specify only one of them"))
+                Err(anyhow::anyhow!("-d/--database and -u/--url are mutually exclusive, please specify only one of them"))
             }
             (None, None) => {
-                return Err(anyhow::anyhow!("at least one of -d/--database and -u/--url must be specified"))
+                Err(anyhow::anyhow!("at least one of -d/--database and -u/--url must be specified"))
             }
             (None, Some(url)) => {
                 Ok(DataSource::Remote(url.clone()))
@@ -79,6 +79,19 @@ impl DataSource {
                     Cmd::Info => {
                         let info = db::info(&db_handle)?;
                         Ok(info.into())
+                    }
+                    Cmd::Detail {
+                        host,
+                        app,
+                        level,
+                    } => {
+                        let detail = db::detail(
+                            &host,
+                            &app, 
+                            level,
+                            &db_handle,
+                        )?;
+                        Ok(detail.into())
                     }
                     Cmd::Query {
                         max_log_level,
@@ -118,6 +131,21 @@ impl DataSource {
                         let info = api_config.info(&client).await?;
                         Ok(info.into())
                     }
+                    Cmd::Detail {
+                        host,
+                        app,
+                        level,
+                    } => {
+                        let detail = api_config
+                            .detail(
+                                &client,
+                                &host,
+                                &app,
+                                level,
+                            )
+                            .await?;
+                        Ok(detail.into())
+                    }
                     Cmd::Query {
                         max_log_level,
                         start_timestamp,
@@ -150,6 +178,7 @@ impl DataSource {
 enum CmdResult {
     Info(Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>),
     Query(Vec<eigenlog::QueryResponse>),
+    Detail(eigenlog::LogTreeDetail),
 }
 
 impl From<Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>> for CmdResult {
@@ -164,6 +193,13 @@ impl From<Vec<eigenlog::QueryResponse>> for CmdResult {
     }
 }
 
+impl From<eigenlog::LogTreeDetail> for CmdResult {
+    fn from(i: eigenlog::LogTreeDetail) -> CmdResult {
+        CmdResult::Detail(i)
+    }
+}
+
+
 impl CmdResult {
     fn write_out(self, output_format: PrintOptions) -> anyhow::Result<()> {
         let stdout = io::stdout();
@@ -177,6 +213,11 @@ impl CmdResult {
                             writer.serialize(row)?;
                         }
                     }
+                    CmdResult::Detail(det) => {
+                        for (date, rows) in det.row_detail {
+                            writer.write_byte_record(&csv::StringRecord::from(vec![date.to_string(), rows.to_string()]).into_byte_record())?;
+                        }
+                    }
                     CmdResult::Query(query) => {
                         for row in query {
                             writer.serialize(row)?;
@@ -188,6 +229,9 @@ impl CmdResult {
             PrintOptions::Json => match self {
                 CmdResult::Info(info) => {
                     serde_json::to_writer_pretty(handle, &info)?;
+                }
+                CmdResult::Detail(detail) => {
+                    serde_json::to_writer_pretty(handle, &detail)?;
                 }
                 CmdResult::Query(query) => {
                     serde_json::to_writer_pretty(handle, &query)?;
@@ -209,6 +253,13 @@ impl CmdResult {
                 }
                 CmdResult::Query(q) => {
                     for row in data_to_table(q).lines() {
+                        handle.write_all(row.as_bytes())?;
+                        handle.write_all("\n".as_bytes())?;
+                    }
+                }
+                CmdResult::Detail(d) => {
+                    println!("Detail for {}/{}/{} ({} total rows)", d.host, d.app, d.level, d.rows);
+                    for row in detail_to_table(d).lines() {
                         handle.write_all(row.as_bytes())?;
                         handle.write_all("\n".as_bytes())?;
                     }
@@ -236,6 +287,14 @@ enum Cmd {
         #[structopt(short = "m", long = "message")]
         message_regex: Option<String>,
     },
+    Detail {
+        #[structopt(short = "h", long = "host")]
+        host: eigenlog::Host,
+        #[structopt(short = "a", long = "app")]
+        app: eigenlog::App,
+        #[structopt(short = "l", long = "level")]
+        level: eigenlog::Level,
+    }
 }
 
 fn info_to_table(
@@ -264,6 +323,18 @@ fn info_to_table(
         }
     }
     (table, errors)
+}
+
+fn detail_to_table(data: eigenlog::LogTreeDetail) -> comfy_table::Table {
+    let mut table = comfy_table::Table::new();
+    table.set_header(vec!["Date", "Rows"]);
+    for (date, rows) in data.row_detail {
+        table.add_row(vec![
+            date.to_string(),
+            rows.to_string(),
+        ]);
+    }
+    table
 }
 
 fn data_to_table(data: Vec<eigenlog::QueryResponse>) -> comfy_table::Table {

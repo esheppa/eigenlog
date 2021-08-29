@@ -6,7 +6,6 @@ use eigenlog::subscriber;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let error_handler = Box::new(|err| eprintln!("Error from logging subscriber: {}", err));
-    let sender_error_handler = Box::new(|e| eprintln!("Error from data sender {}", e));
     let api_config = eigenlog::ApiConfig {
         base_url: reqwest::Url::parse("http://127.0.0.1:8080/log")?,
         api_key: "123".to_string(),
@@ -19,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
         .parse::<eigenlog::App>()
         .map_err(|e| anyhow::anyhow!(e))?;
 
-    let (subscriber, mut data_sender) = subscriber::Subscriber::new_remote(
+    let (subscriber, data_sender) = subscriber::Subscriber::new_remote(
         error_handler,
         api_config,
         host,
@@ -35,23 +34,22 @@ async fn main() -> anyhow::Result<()> {
         let mut generator = names::Generator::default();
 
         for i in 1..10000 {
+            println!("Doing log {}", i);
             log::info!("{}: {}", i, generator.next().unwrap());
-            // tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
         }
         println!("Generated 10000 logs");
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     };
 
     tokio::select! {
-        _ = data_sender.run_forever(sender_error_handler) => {
+        _ = data_sender => {
             eprintln!("Data sender exited");
         }
         _ = log_generator => {
             eprintln!("Log generator exited");
         }
     };
-
-    data_sender.flush().await?;
 
     Ok(())
 }

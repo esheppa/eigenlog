@@ -111,6 +111,7 @@ impl SerializationFormat {
 }
 
 #[cfg(any(feature = "client", feature = "remote-subscriber"))]
+#[derive(Clone)]
 pub struct ApiConfig {
     pub base_url: reqwest::Url,
     pub api_key: String,
@@ -167,6 +168,17 @@ pub struct LogTreeInfo {
     pub max: chrono::DateTime<chrono::Utc>,
 }
 
+// empty trees will be ignored
+// so we can be sure we will always have a min and max date
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct LogTreeDetail {
+    pub host: Host,
+    pub app: App,
+    pub level: Level,
+    pub rows: usize,
+    pub row_detail: collections::BTreeMap<chrono::NaiveDate, usize>,
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
 pub struct QueryParams {
     /// will only return logs equal to or more significant than this level,
@@ -177,6 +189,15 @@ pub struct QueryParams {
     pub host_contains: Option<Host>,
     pub app_contains: Option<App>,
     pub message_regex: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct LogTreeDetailParams {
+    /// will only return logs equal to or more significant than this level,
+    /// where `Trace` is the least significant and `Error` is the most significant
+    pub level: Level,
+    pub host: Host,
+    pub app: App,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
