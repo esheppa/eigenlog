@@ -3,7 +3,7 @@
 use eigenlog::{self, db};
 use std::{
     io::{self, Write},
-    path, result, str,
+    path, result, str, time,
 };
 
 // CLI command to get info
@@ -91,6 +91,7 @@ impl DataSource {
                         host_contains,
                         app_contains,
                         message_regex,
+                        max_results,
                     } => {
                         let query = db::query(
                             eigenlog::QueryParams {
@@ -100,6 +101,7 @@ impl DataSource {
                                 host_contains,
                                 app_contains,
                                 message_regex,
+                                max_results,
                             },
                             &db_handle,
                         )?;
@@ -133,6 +135,7 @@ impl DataSource {
                         host_contains,
                         app_contains,
                         message_regex,
+                        max_results,
                     } => {
                         let query = api_config
                             .query(
@@ -144,7 +147,9 @@ impl DataSource {
                                     host_contains,
                                     app_contains,
                                     message_regex,
+                                    max_results,
                                 },
+                                time::Duration::from_secs(15),
                             )
                             .await?;
                         Ok(query.into())
@@ -271,6 +276,8 @@ enum Cmd {
         app_contains: Option<eigenlog::App>,
         #[structopt(short = "m", long = "message")]
         message_regex: Option<String>,
+        #[structopt(short = "r", long = "rows")]
+        max_results: Option<usize>,
     },
     Detail {
         #[structopt(short = "h", long = "host")]
