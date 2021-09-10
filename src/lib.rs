@@ -189,6 +189,7 @@ pub struct QueryParams {
     pub host_contains: Option<Host>,
     pub app_contains: Option<App>,
     pub message_regex: Option<String>,
+    pub max_results: Option<usize>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]

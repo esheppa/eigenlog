@@ -59,9 +59,16 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
         .message_regex
         .as_ref()
         .and_then(|msg| regex::Regex::new(msg).ok());
+    let mut rows = 0;
     for tree_name in relevant_trees {
         let tree = db.open_tree(tree_name.to_string())?;
         for item in tree.range(start..=end) {
+            match params.max_results {
+                Some(max_results) if max_results < rows => {
+                    break;
+                }
+                _ => (),
+            }
             let (key, value) = item?;
             let data = bincode::deserialize::<LogData>(&value)?;
 
@@ -76,7 +83,8 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
                 level: tree_name.level.clone(),
                 id: ivec_be_to_u128(key)?.into(),
                 data: bincode::deserialize(&value)?,
-            })
+            });
+            rows += 1;
         }
     }
 

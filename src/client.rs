@@ -1,12 +1,14 @@
 use super::*;
 use bincode_crate as bincode;
 use reqwest::header;
+use std::time;
 
 impl ApiConfig {
     pub async fn query(
         &self,
         client: &reqwest::Client,
         params: &QueryParams,
+        timeout: time::Duration,
     ) -> Result<Vec<QueryResponse>> {
         let url = format!("{}/query", self.base_url);
 
@@ -25,6 +27,7 @@ impl ApiConfig {
             .get(url)
             .headers(headers)
             .query(&params)
+            .timeout(timeout)
             .send()
             .await?
             .error_for_status()?
