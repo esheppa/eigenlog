@@ -3,7 +3,9 @@ use bincode_crate as bincode;
 use reqwest::header;
 use std::time;
 
-impl ApiConfig {
+impl<T> ApiConfig<T> 
+where T: ConnectionProxy,
+{
     pub async fn query(
         &self,
         client: &reqwest::Client,
@@ -12,21 +14,15 @@ impl ApiConfig {
     ) -> Result<Vec<QueryResponse>> {
         let url = format!("{}/query", self.base_url);
 
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::HeaderName::from_static(API_KEY_HEADER),
-            header::HeaderValue::from_str(&self.api_key)?,
-        );
+        let req = client
+            .get(url);
 
-        headers.insert(
+        let req = self.proxy.clone().proxy(req).await?;
+
+        let resp = req.header(
             header::ACCEPT,
             header::HeaderValue::from_static(OCTET_STREAM),
-        );
-
-        let resp = client
-            .get(url)
-            .headers(headers)
-            .query(&params)
+        ).query(&params)
             .timeout(timeout)
             .send()
             .await?
@@ -45,20 +41,15 @@ impl ApiConfig {
     ) -> Result<LogTreeDetail> {
         let url = format!("{}/detail/{}/{}/{}", self.base_url, host, app, level);
 
-        let mut headers = header::HeaderMap::new();
-        headers.insert(
-            header::HeaderName::from_static(API_KEY_HEADER),
-            header::HeaderValue::from_str(&self.api_key)?,
-        );
+        let req = client
+            .get(url);
 
-        headers.insert(
+        let req = self.proxy.clone().proxy(req).await?;
+
+        let resp = req.header(
             header::ACCEPT,
             header::HeaderValue::from_static(OCTET_STREAM),
-        );
-
-        let resp = client
-            .get(url)
-            .headers(headers)
+        )
             .send()
             .await?
             .error_for_status()?
@@ -73,21 +64,15 @@ impl ApiConfig {
     ) -> Result<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>> {
         let url = format!("{}/info", self.base_url);
 
-        let mut headers = header::HeaderMap::new();
+        let req = client
+            .get(url);
 
-        headers.insert(
-            header::HeaderName::from_static(API_KEY_HEADER),
-            header::HeaderValue::from_str(&self.api_key)?,
-        );
+        let req = self.proxy.clone().proxy(req).await?;
 
-        headers.insert(
+        let resp = req.header(
             header::ACCEPT,
             header::HeaderValue::from_static(OCTET_STREAM),
-        );
-
-        let resp = client
-            .get(url)
-            .headers(headers)
+        )
             .send()
             .await?
             .error_for_status()?

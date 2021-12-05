@@ -7,8 +7,9 @@ use eigenlog::subscriber;
 async fn main() -> anyhow::Result<()> {
     let error_handler = Box::new(|err| eprintln!("Error from logging subscriber: {}", err));
     let api_config = eigenlog::ApiConfig {
+        client: reqwest::Client::new(),
         base_url: reqwest::Url::parse("http://127.0.0.1:8080/log")?,
-        api_key: "123".to_string(),
+        proxy: eigenlog::BasicProxy::init("123".to_string()),
         serialization_format: eigenlog::SerializationFormat::Bincode,
     };
     let host = "local"

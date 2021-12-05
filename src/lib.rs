@@ -10,7 +10,7 @@
 
 use http::header;
 use once_cell::sync as once_cell;
-use std::{collections, error, fmt, iter, result, str};
+use std::{collections, error, fmt, iter, result, str, sync};
 
 #[cfg(feature = "client")]
 pub mod client;
@@ -110,11 +110,46 @@ impl SerializationFormat {
     }
 }
 
+
+#[cfg(any(feature = "client", feature = "remote-subscriber"))]
+/// This allows the user of the library to interject in each request that is made to
+/// the server and add any headers, client auth, certificate auth, etc.
+#[async_trait::async_trait]
+pub trait ConnectionProxy: Send + Sync + Unpin {
+    async fn proxy(self: sync::Arc<Self>, request: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilder>;
+}
+
 #[cfg(any(feature = "client", feature = "remote-subscriber"))]
 #[derive(Clone)]
-pub struct ApiConfig {
-    pub base_url: reqwest::Url,
+pub struct BasicProxy {
     pub api_key: String,
+}
+impl BasicProxy {
+    pub fn init(api_key: String) -> sync::Arc<BasicProxy> {
+        sync::Arc::new(BasicProxy { api_key })    
+    }
+}
+
+#[cfg(any(feature = "client", feature = "remote-subscriber"))]
+/// Example of interjecting an API key into a request 
+#[async_trait::async_trait]
+impl ConnectionProxy for BasicProxy {
+    async fn proxy(self: sync::Arc<Self>, request: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilder> {
+        Ok(request.header(
+            header::HeaderName::from_static(API_KEY_HEADER),
+            header::HeaderValue::from_str(&self.api_key)?,
+
+        ))
+    }
+}
+
+#[cfg(any(feature = "client", feature = "remote-subscriber"))]
+pub struct ApiConfig<T> 
+where T: ConnectionProxy,
+{
+    pub client: reqwest::Client,
+    pub base_url: reqwest::Url,
+    pub proxy: sync::Arc<T>,
     pub serialization_format: SerializationFormat,
 }
 
@@ -478,4 +513,7 @@ pub enum Error {
 
     #[error("Parse log tree info: {0}")]
     ParseLogTreeInfo(String),
+
+    #[error("Log subscriber was closed")]
+    LogSubscriberClosed,
 }
