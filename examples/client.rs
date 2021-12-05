@@ -114,8 +114,9 @@ impl DataSource {
                 let mut api_key = String::new();
                 stdin.read_line(&mut api_key)?;
                 let api_config = eigenlog::ApiConfig {
+                    client: reqwest::Client::new(),
+                    proxy: eigenlog::BasicProxy::init("123".to_string()),
                     base_url,
-                    api_key,
                     serialization_format: eigenlog::SerializationFormat::Bincode,
                 };
                 let client = reqwest::Client::new();

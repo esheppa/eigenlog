@@ -1,6 +1,6 @@
 [package]
 name = "eigenlog"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Eric Sheppard <eric@sheppard.cloud>"]
 edition = "2018"
 
@@ -11,6 +11,10 @@ once_cell = "1.7"
 regex = "1"
 thiserror = "1"
 uuid = "0.8"
+
+[dependencies.async-trait]
+version = "0.1"
+optional = true 
 
 [dependencies.bincode-crate]
 version = "1.3"
@@ -70,8 +74,8 @@ env_logger = "0.9"
 [features]
 json = ["serde_json", "reqwest/json"]
 bincode = [ "bincode-crate" ]
-client = ["reqwest", "bincode"]
-remote-subscriber = ["reqwest"] # needs one of bincode or json
+client = ["reqwest", "bincode", "async-trait"]
+remote-subscriber = ["reqwest", "async-trait"] # needs one of bincode or json
 local-subscriber = ["sled", "bincode"]
 server = ["sled", "warp", "bincode"]
 # default = ["remote-subscriber", "bincode"]
