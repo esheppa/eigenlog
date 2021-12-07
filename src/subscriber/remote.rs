@@ -13,8 +13,9 @@ impl Subscriber {
         app: App,
         level: log::Level,
         cache_limit: CacheLimit,
-    ) -> (Subscriber, DataSender<T>) 
-    where T: ConnectionProxy
+    ) -> (Subscriber, DataSender<T>)
+    where
+        T: ConnectionProxy,
     {
         let (tx1, rx1) = mpsc::unbounded_channel();
         let (tx2, rx2) = mpsc::unbounded_channel();
@@ -42,8 +43,9 @@ impl Subscriber {
 }
 
 #[must_use]
-pub struct DataSender<T> 
-where T: ConnectionProxy + Sync + Send + 'static  
+pub struct DataSender<T>
+where
+    T: ConnectionProxy + Sync + Send + 'static,
 {
     receiver: mpsc::UnboundedReceiver<(log::Level, LogData)>,
 
@@ -62,23 +64,26 @@ where T: ConnectionProxy + Sync + Send + 'static
     sender: Option<pin::Pin<Box<dyn futures::Future<Output = Result<()>>>>>,
 
     generator: ulid::Generator,
-}    
+}
 
-
-
-
-impl<T> Drop for DataSender<T> 
-where T: ConnectionProxy + Sync + Send + 'static  
+impl<T> Drop for DataSender<T>
+where
+    T: ConnectionProxy + Sync + Send + 'static,
 {
     fn drop(&mut self) {
         let cache = std::mem::take(&mut self.cache);
         let (tx, rx) = std::sync::mpsc::channel();
 
-        let trace_req = prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Trace);
-        let debug_req = prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Debug);
-        let info_req = prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Info);
-        let warn_req = prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Warn);
-        let error_req = prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Error);
+        let trace_req =
+            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Trace);
+        let debug_req =
+            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Debug);
+        let info_req =
+            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Info);
+        let warn_req =
+            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Warn);
+        let error_req =
+            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Error);
 
         let serialization_format = self.api_config.serialization_format;
         let proxy = self.api_config.proxy.clone();
@@ -125,12 +130,11 @@ where T: ConnectionProxy + Sync + Send + 'static
     }
 }
 
-
-
 // // We impl Future rather than using async fn's here as this allows more granular control
 // // on sending the batches to the remote server but still recieving new batches as fast as possible
-impl<T> futures::Future for DataSender<T> 
-where T: ConnectionProxy + Sync + Send + 'static  
+impl<T> futures::Future for DataSender<T>
+where
+    T: ConnectionProxy + Sync + Send + 'static,
 {
     type Output = ();
     fn poll(
@@ -160,17 +164,16 @@ where T: ConnectionProxy + Sync + Send + 'static
                 // current send isn't yet finished
                 task::Poll::Pending => {
                     this.sender = Some(fut);
-                    return  task::Poll::Pending;
+                    return task::Poll::Pending;
                 }
                 // previous send has finished, ready for the next one
                 task::Poll::Ready(prev_res) => {
                     if let Err(e) = prev_res {
                         eprintln!("Error during sending of log message: {}", e);
                     }
-                   
                 }
             }
-        } 
+        }
 
         // due to Error having the smallest associated value
         // Error's will be sent in preference
@@ -181,13 +184,16 @@ where T: ConnectionProxy + Sync + Send + 'static
                 let req = prepare_without_batch(&this.api_config, &this.host, &this.app, *level);
                 let local_proxy = this.api_config.proxy.clone();
                 let local_format = this.api_config.serialization_format;
-                this.sender = Some(Box::pin(local_proxy.proxy(req).and_then(move |r| async move {
-                    r
-                    .body(local_format.serialize(&batch)?)
-                    .send().await?.error_for_status()?;
-                    Ok(())
-                })));
-                
+                this.sender = Some(Box::pin(local_proxy.proxy(req).and_then(
+                    move |r| async move {
+                        r.body(local_format.serialize(&batch)?)
+                            .send()
+                            .await?
+                            .error_for_status()?;
+                        Ok(())
+                    },
+                )));
+
                 break;
             }
         }
@@ -197,16 +203,15 @@ where T: ConnectionProxy + Sync + Send + 'static
     }
 }
 
-
 fn prepare_without_batch<T>(
     config: &ApiConfig<T>,
     host: &Host,
     app: &App,
     level: log::Level,
 ) -> reqwest::RequestBuilder
-where T: ConnectionProxy
+where
+    T: ConnectionProxy,
 {
-
     let url = format!(
         "{base}/submit/{host}/{app}/{level}",
         base = config.base_url,
@@ -215,18 +220,23 @@ where T: ConnectionProxy
         level = level.to_string().to_lowercase()
     );
 
-    config.client
-        .post(url)
-        .header(
-            header::CONTENT_TYPE,
-            config.serialization_format.header_value(),
-        )
+    config.client.post(url).header(
+        header::CONTENT_TYPE,
+        config.serialization_format.header_value(),
+    )
 }
 
-async fn send_batch<T>(request: reqwest::RequestBuilder, proxy: sync::Arc<T>) 
-where T: ConnectionProxy + Sync + Send + 'static  
+async fn send_batch<T>(request: reqwest::RequestBuilder, proxy: sync::Arc<T>)
+where
+    T: ConnectionProxy + Sync + Send + 'static,
 {
-    if let Err(e) =proxy.proxy(request).map_err(|e| e.to_string()).and_then(|req| req.send().map_err(|e| e.to_string())).await.and_then(|res| res.error_for_status().map_err(|e| e.to_string())) {
+    if let Err(e) = proxy
+        .proxy(request)
+        .map_err(|e| e.to_string())
+        .and_then(|req| req.send().map_err(|e| e.to_string()))
+        .await
+        .and_then(|res| res.error_for_status().map_err(|e| e.to_string()))
+    {
         eprintln!("Error sending batch: {}", e);
     }
 }

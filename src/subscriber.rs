@@ -1,6 +1,6 @@
 use super::*;
-use tokio::sync::mpsc;
 use std::task;
+use tokio::sync::mpsc;
 
 #[cfg(feature = "local-subscriber")]
 mod local;

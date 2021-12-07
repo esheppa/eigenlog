@@ -3,8 +3,9 @@ use bincode_crate as bincode;
 use reqwest::header;
 use std::time;
 
-impl<T> ApiConfig<T> 
-where T: ConnectionProxy,
+impl<T> ApiConfig<T>
+where
+    T: ConnectionProxy,
 {
     pub async fn query(
         &self,
@@ -14,15 +15,16 @@ where T: ConnectionProxy,
     ) -> Result<Vec<QueryResponse>> {
         let url = format!("{}/query", self.base_url);
 
-        let req = client
-            .get(url);
+        let req = client.get(url);
 
         let req = self.proxy.clone().proxy(req).await?;
 
-        let resp = req.header(
-            header::ACCEPT,
-            header::HeaderValue::from_static(OCTET_STREAM),
-        ).query(&params)
+        let resp = req
+            .header(
+                header::ACCEPT,
+                header::HeaderValue::from_static(OCTET_STREAM),
+            )
+            .query(&params)
             .timeout(timeout)
             .send()
             .await?
@@ -41,15 +43,15 @@ where T: ConnectionProxy,
     ) -> Result<LogTreeDetail> {
         let url = format!("{}/detail/{}/{}/{}", self.base_url, host, app, level);
 
-        let req = client
-            .get(url);
+        let req = client.get(url);
 
         let req = self.proxy.clone().proxy(req).await?;
 
-        let resp = req.header(
-            header::ACCEPT,
-            header::HeaderValue::from_static(OCTET_STREAM),
-        )
+        let resp = req
+            .header(
+                header::ACCEPT,
+                header::HeaderValue::from_static(OCTET_STREAM),
+            )
             .send()
             .await?
             .error_for_status()?
@@ -64,15 +66,15 @@ where T: ConnectionProxy,
     ) -> Result<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>> {
         let url = format!("{}/info", self.base_url);
 
-        let req = client
-            .get(url);
+        let req = client.get(url);
 
         let req = self.proxy.clone().proxy(req).await?;
 
-        let resp = req.header(
-            header::ACCEPT,
-            header::HeaderValue::from_static(OCTET_STREAM),
-        )
+        let resp = req
+            .header(
+                header::ACCEPT,
+                header::HeaderValue::from_static(OCTET_STREAM),
+            )
             .send()
             .await?
             .error_for_status()?
