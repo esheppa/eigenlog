@@ -3,9 +3,9 @@ use std::task;
 use tokio::sync::mpsc;
 
 #[cfg(feature = "local-subscriber")]
-mod local;
+pub mod local;
 #[cfg(feature = "remote-subscriber")]
-mod remote;
+pub mod remote;
 
 pub struct Subscriber {
     // send a new log message
