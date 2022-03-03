@@ -228,7 +228,8 @@ pub struct QueryParams {
     pub end_timestamp: Option<chrono::DateTime<chrono::Utc>>,
     pub host_contains: Option<Host>,
     pub app_contains: Option<App>,
-    pub message_regex: Option<String>,
+    pub message_matches: Vec<String>,
+    pub message_not_matches: Vec<String>,
     pub max_results: Option<usize>,
 }
 
@@ -289,7 +290,7 @@ impl AsRef<str> for Host {
 }
 
 static HOST_REGEX: once_cell::Lazy<regex::Regex> =
-    once_cell::Lazy::new(|| regex::Regex::new("[A-Za-z0-9]+").unwrap());
+    once_cell::Lazy::new(|| regex::Regex::new("^[A-Za-z0-9]+$").unwrap());
 
 impl std::str::FromStr for Host {
     type Err = HostParseError;
@@ -516,9 +517,32 @@ pub enum Error {
     #[error("Setting logger: {0}")]
     Log(#[from] log::SetLoggerError),
 
+    #[error("Parsing regex: {0}")]
+    Regex(#[from] regex::Error),
+
     #[error("Parse log tree info: {0}")]
     ParseLogTreeInfo(String),
 
     #[error("Log subscriber was closed")]
     LogSubscriberClosed,
+
+    #[error("Custom: {0}")]
+    Custom(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_host() {
+        assert!("abc123".parse::<Host>().is_ok());
+        assert!("abc-123".parse::<Host>().is_err());
+    }
+
+    #[test]
+    fn test_app() {
+        assert!("abc123".parse::<App>().is_ok());
+        assert!("abc-123".parse::<App>().is_err());
+    }
 }

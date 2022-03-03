@@ -90,7 +90,8 @@ impl DataSource {
                         end_timestamp,
                         host_contains,
                         app_contains,
-                        message_regex,
+                        message_matches,
+                        message_not_matches,
                         max_results,
                     } => {
                         let query = db::query(
@@ -100,11 +101,13 @@ impl DataSource {
                                 end_timestamp,
                                 host_contains,
                                 app_contains,
-                                message_regex,
+                                message_matches,
+                                message_not_matches,
                                 max_results,
                             },
                             &db_handle,
                         )?;
+
                         Ok(query.into())
                     }
                 }
@@ -135,7 +138,8 @@ impl DataSource {
                         end_timestamp,
                         host_contains,
                         app_contains,
-                        message_regex,
+                        message_matches,
+                        message_not_matches,
                         max_results,
                     } => {
                         let query = api_config
@@ -147,7 +151,8 @@ impl DataSource {
                                     end_timestamp,
                                     host_contains,
                                     app_contains,
-                                    message_regex,
+                                    message_matches,
+                                    message_not_matches,
                                     max_results,
                                 },
                                 time::Duration::from_secs(15),
@@ -275,8 +280,10 @@ enum Cmd {
         host_contains: Option<eigenlog::Host>,
         #[structopt(short = "a", long = "app")]
         app_contains: Option<eigenlog::App>,
-        #[structopt(short = "m", long = "message")]
-        message_regex: Option<String>,
+        #[structopt(short = "m", long = "matches")]
+        message_matches: Vec<String>,
+        #[structopt(short = "n", long = "not_matches")]
+        message_not_matches: Vec<String>,
         #[structopt(short = "r", long = "rows")]
         max_results: Option<usize>,
     },
