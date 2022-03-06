@@ -11,7 +11,7 @@ impl Subscriber {
         api_config: ApiConfig<T>,
         host: Host,
         app: App,
-        level: log::Level,
+        level: log::LevelFilter,
         cache_limit: CacheLimit,
     ) -> (Subscriber, DataSender<T>)
     where
@@ -71,6 +71,7 @@ where
     T: ConnectionProxy + Sync + Send + 'static,
 {
     fn drop(&mut self) {
+        eprintln!("Dropping DataSender");
         let cache = std::mem::take(&mut self.cache);
         let (tx, rx) = std::sync::mpsc::channel();
 

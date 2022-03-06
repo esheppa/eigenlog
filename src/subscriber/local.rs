@@ -5,7 +5,7 @@ impl Subscriber {
         on_result: Box<dyn Fn(&'static str) + Sync + Send>,
         host: Host,
         app: App,
-        level: log::Level,
+        level: log::LevelFilter,
         db: sled::Db,
     ) -> (Subscriber, DataSaver) {
         let (tx1, rx1) = mpsc::unbounded_channel();

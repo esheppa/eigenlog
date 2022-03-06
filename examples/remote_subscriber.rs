@@ -24,11 +24,11 @@ async fn main() -> anyhow::Result<()> {
         api_config,
         host,
         app,
-        log::Level::Debug,
+        log::LevelFilter::Debug,
         subscriber::CacheLimit::default(),
     );
 
-    subscriber.set_logger(log::LevelFilter::Info)?;
+    subscriber.set_logger()?;
 
     let log_generator = async {
         tokio::time::sleep(std::time::Duration::from_secs(3)).await;

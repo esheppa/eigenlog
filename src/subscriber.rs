@@ -17,12 +17,13 @@ pub struct Subscriber {
 
     on_result: Box<dyn Fn(&'static str) + Sync + Send>,
 
-    level: log::Level,
+    level: log::LevelFilter,
 }
 impl Subscriber {
-    pub fn set_logger(self, max_level: log::LevelFilter) -> Result<()> {
+    pub fn set_logger(self) -> Result<()> {
+        let lf = self.level;
         log::set_boxed_logger(Box::new(self))?;
-        log::set_max_level(max_level);
+        log::set_max_level(lf);
         Ok(())
     }
 }
@@ -53,7 +54,7 @@ impl CacheLimit {
         level: log::Level,
         batch: &collections::BTreeMap<ulid::Ulid, LogData>,
     ) -> bool {
-        batch.len() < self.get_limit(level)
+        batch.len() >= self.get_limit(level)
     }
 }
 
@@ -96,5 +97,83 @@ impl Drop for Subscriber {
     fn drop(&mut self) {
         eprintln!("Dropping log subscriber - sleeing the thread to give the sender time to empty the cache");
         std::thread::sleep(std::time::Duration::from_secs(10));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_cache_limit() {
+        let mut gen = ulid::Generator::new();
+        let log_data = LogData {
+            message: "abc".to_string(),
+            code_module: None,
+            code_file: None,
+            code_line: None,
+            tags: collections::HashMap::new(),
+        };
+
+        let batch_1 = iter::repeat(log_data.clone())
+            .take(1)
+            .map(|ld| (gen.generate().unwrap(), ld))
+            .collect::<collections::BTreeMap<_, _>>();
+        let batch_5 = iter::repeat(log_data.clone())
+            .take(5)
+            .map(|ld| (gen.generate().unwrap(), ld))
+            .collect::<collections::BTreeMap<_, _>>();
+        let batch_9 = iter::repeat(log_data.clone())
+            .take(9)
+            .map(|ld| (gen.generate().unwrap(), ld))
+            .collect::<collections::BTreeMap<_, _>>();
+        let batch_10 = iter::repeat(log_data.clone())
+            .take(10)
+            .map(|ld| (gen.generate().unwrap(), ld))
+            .collect::<collections::BTreeMap<_, _>>();
+        let batch_99 = iter::repeat(log_data.clone())
+            .take(99)
+            .map(|ld| (gen.generate().unwrap(), ld))
+            .collect::<collections::BTreeMap<_, _>>();
+        let batch_100 = iter::repeat(log_data)
+            .take(100)
+            .map(|ld| (gen.generate().unwrap(), ld))
+            .collect::<collections::BTreeMap<_, _>>();
+
+        let limit = CacheLimit::default();
+
+        assert!(limit.should_send(log::Level::Error, &batch_1));
+        assert!(limit.should_send(log::Level::Error, &batch_5));
+        assert!(limit.should_send(log::Level::Error, &batch_9));
+        assert!(limit.should_send(log::Level::Error, &batch_10));
+        assert!(limit.should_send(log::Level::Error, &batch_99));
+        assert!(limit.should_send(log::Level::Error, &batch_100));
+
+        assert!(limit.should_send(log::Level::Warn, &batch_1));
+        assert!(limit.should_send(log::Level::Warn, &batch_5));
+        assert!(limit.should_send(log::Level::Warn, &batch_9));
+        assert!(limit.should_send(log::Level::Warn, &batch_10));
+        assert!(limit.should_send(log::Level::Warn, &batch_99));
+        assert!(limit.should_send(log::Level::Warn, &batch_100));
+
+        assert!(!limit.should_send(log::Level::Info, &batch_1));
+        assert!(!limit.should_send(log::Level::Info, &batch_5));
+        assert!(!limit.should_send(log::Level::Info, &batch_9));
+        assert!(limit.should_send(log::Level::Info, &batch_10));
+        assert!(limit.should_send(log::Level::Info, &batch_99));
+        assert!(limit.should_send(log::Level::Info, &batch_100));
+
+        assert!(!limit.should_send(log::Level::Debug, &batch_1));
+        assert!(!limit.should_send(log::Level::Debug, &batch_5));
+        assert!(!limit.should_send(log::Level::Debug, &batch_9));
+        assert!(!limit.should_send(log::Level::Debug, &batch_10));
+        assert!(!limit.should_send(log::Level::Debug, &batch_99));
+        assert!(limit.should_send(log::Level::Debug, &batch_100));
+
+        assert!(!limit.should_send(log::Level::Trace, &batch_1));
+        assert!(!limit.should_send(log::Level::Trace, &batch_5));
+        assert!(!limit.should_send(log::Level::Trace, &batch_9));
+        assert!(!limit.should_send(log::Level::Trace, &batch_10));
+        assert!(!limit.should_send(log::Level::Trace, &batch_99));
+        assert!(limit.should_send(log::Level::Trace, &batch_100));
     }
 }
