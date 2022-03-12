@@ -13,7 +13,7 @@ where
         params: &QueryParams,
         timeout: time::Duration,
     ) -> Result<Vec<QueryResponse>> {
-        let url = format!("{}/query", self.base_url);
+        let url = self.base_url.join("query")?;
 
         let req = client.get(url);
 
@@ -41,7 +41,9 @@ where
         app: &App,
         level: Level,
     ) -> Result<LogTreeDetail> {
-        let url = format!("{}/detail/{}/{}/{}", self.base_url, host, app, level);
+        let url = self
+            .base_url
+            .join(&format!("detail/{host}/{app}/{level}"))?;
 
         let req = client.get(url);
 
@@ -64,7 +66,7 @@ where
         &self,
         client: &reqwest::Client,
     ) -> Result<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>> {
-        let url = format!("{}/info", self.base_url);
+        let url = self.base_url.join("info")?;
 
         let req = client.get(url);
 

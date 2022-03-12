@@ -478,6 +478,10 @@ pub enum Error {
     #[error("Header: {0}")]
     Header(#[from] reqwest::header::InvalidHeaderValue),
 
+    #[cfg(any(feature = "client", feature = "remote-subscriber"))]
+    #[error("Parse url: {0}")]
+    Url(#[from] url::ParseError),
+
     #[error("API key `{0}` is not valid")]
     InvalidApiKey(String),
 

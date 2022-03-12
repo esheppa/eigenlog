@@ -1,4 +1,5 @@
 use super::*;
+use futures::{future, StreamExt};
 
 impl Subscriber {
     pub fn new_local(
@@ -8,8 +9,8 @@ impl Subscriber {
         level: log::LevelFilter,
         db: sled::Db,
     ) -> (Subscriber, DataSaver) {
-        let (tx1, rx1) = mpsc::unbounded_channel();
-        let (tx2, rx2) = mpsc::unbounded_channel();
+        let (tx1, rx1) = mpsc::unbounded();
+        let (tx2, rx2) = mpsc::unbounded();
 
         (
             Subscriber {
@@ -63,22 +64,22 @@ impl DataSaver {
         } = self;
 
         loop {
-            let log_data = receiver.recv();
-            let flush_req = flush_request.recv();
-
-            tokio::select! {
-                Some((level, data)) = log_data => {
+            match future::select(receiver.next(), flush_request.next()).await {
+                future::Either::Left((Some((level, data)), _)) => {
                     let mut generator = ulid::Generator::new();
                     let mut batch = collections::BTreeMap::new();
                     batch.insert(generator.generate()?, data);
                     db::submit(host, app, level.into(), batch, db)?;
                 }
-                Some(sender) = flush_req => {
-                for level in Level::all() {
-                    let tree = db.open_tree(level.get_tree_name(host, app))?;
-                    tree.flush()?;
+                future::Either::Right((Some(sender), _)) => {
+                    for level in Level::all() {
+                        let tree = db.open_tree(level.get_tree_name(host, app))?;
+                        tree.flush()?;
+                    }
+                    sender.send(())?;
                 }
-                sender.send(())?;
+                future::Either::Left((None, _)) | future::Either::Right((None, _)) => {
+                    return Err(Error::LogSubscriberClosed)
                 }
             }
         }

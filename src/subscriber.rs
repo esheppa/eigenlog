@@ -1,6 +1,6 @@
 use super::*;
-use std::task;
-use tokio::sync::mpsc;
+// use std::task;
+use futures::channel::mpsc;
 
 #[cfg(feature = "local-subscriber")]
 pub mod local;
@@ -75,14 +75,14 @@ impl log::Log for Subscriber {
         self.level >= metadata.level()
     }
     fn log(&self, record: &log::Record) {
-        let res = self.sender.send((record.level(), record.into()));
+        let res = self.sender.unbounded_send((record.level(), record.into()));
         if res.is_err() {
             (self.on_result)("log_record_send_failure");
         }
     }
     fn flush(&self) {
         let (tx, rx) = std::sync::mpsc::sync_channel(0);
-        let res = self.flush_requester.send(tx);
+        let res = self.flush_requester.unbounded_send(tx);
         if res.is_err() {
             (self.on_result)("flush_request_failure");
         }

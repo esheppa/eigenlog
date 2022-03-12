@@ -2,6 +2,7 @@
 // and this demonstrates the use of a remote subscriber
 
 use eigenlog::subscriber;
+use futures::future;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,7 +26,13 @@ async fn main() -> anyhow::Result<()> {
         host,
         app,
         log::LevelFilter::Debug,
-        subscriber::CacheLimit::default(),
+        subscriber::CacheLimit {
+            debug: 1000,
+            trace: 1000,
+            info: 100,
+            error: 1,
+            warn: 1,
+        },
     );
 
     subscriber.set_logger()?;
@@ -43,14 +50,21 @@ async fn main() -> anyhow::Result<()> {
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     };
 
-    tokio::select! {
-        _ = data_sender => {
-            eprintln!("Data sender exited");
-        }
-        _ = log_generator => {
+    match future::select(Box::pin(log_generator), Box::pin(data_sender.run())).await {
+        future::Either::Left((_, _)) => {
             eprintln!("Log generator exited");
         }
-    };
+        future::Either::Right((_, _)) => {
+            eprintln!("Data sender exited");
+        }
+    }
+
+    // tokio::spawn(async move {
+    //     log_generator.await;
+    //     // process::exit(1);
+    // });
+
+    // data_sender.run().await;
 
     Ok(())
 }
