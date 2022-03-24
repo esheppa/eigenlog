@@ -58,14 +58,12 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
 
     let must_match = params
         .message_matches
-        .iter()
-        .map(|s| regex::Regex::new(s).map_err(crate::Error::from))
-        .collect::<Result<Vec<regex::Regex>>>()?;
+        .map(|s| regex::Regex::new(&s).map_err(crate::Error::from))
+        .transpose()?;
     let must_not_match = params
         .message_not_matches
-        .iter()
-        .map(|s| regex::Regex::new(s).map_err(crate::Error::from))
-        .collect::<Result<Vec<regex::Regex>>>()?;
+        .map(|s| regex::Regex::new(&s).map_err(crate::Error::from))
+        .transpose()?;
 
     let mut rows = 0;
     for tree_name in relevant_trees {
@@ -81,14 +79,20 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
             let data = bincode::deserialize::<LogData>(&value)?;
 
             // exit early if we want to filter out
-            let any_not_matches = must_not_match.iter().any(|n| n.is_match(&data.message));
+            let any_not_matches = must_not_match
+                .as_ref()
+                .map(|n| n.is_match(&data.message))
+                .unwrap_or(false);
 
             // exit early if we want to filter it out
             if any_not_matches {
                 continue;
             }
 
-            let any_matches = must_match.iter().any(|m| m.is_match(&data.message));
+            let any_matches = must_match
+                .as_ref()
+                .map(|m| m.is_match(&data.message))
+                .unwrap_or(false);
 
             if !any_matches {
                 continue;

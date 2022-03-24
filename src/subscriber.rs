@@ -1,6 +1,6 @@
 use super::*;
 // use std::task;
-use futures::channel::mpsc;
+use futures_channel::mpsc;
 
 #[cfg(feature = "local-subscriber")]
 pub mod local;

@@ -2,7 +2,7 @@
 // and this demonstrates the use of a remote subscriber
 
 use eigenlog::subscriber;
-use futures::future;
+use futures_util::future;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

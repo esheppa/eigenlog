@@ -1,5 +1,5 @@
 use super::*;
-use futures::FutureExt;
+use futures_util::FutureExt;
 use std::{collections, convert, result, sync};
 use warp::{
     http::{self, header},

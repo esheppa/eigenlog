@@ -281,9 +281,9 @@ enum Cmd {
         #[structopt(short = "a", long = "app")]
         app_contains: Option<eigenlog::App>,
         #[structopt(short = "m", long = "matches")]
-        message_matches: Vec<String>,
+        message_matches: Option<String>,
         #[structopt(short = "n", long = "not_matches")]
-        message_not_matches: Vec<String>,
+        message_not_matches: Option<String>,
         #[structopt(short = "r", long = "rows")]
         max_results: Option<usize>,
     },

@@ -228,8 +228,8 @@ pub struct QueryParams {
     pub end_timestamp: Option<chrono::DateTime<chrono::Utc>>,
     pub host_contains: Option<Host>,
     pub app_contains: Option<App>,
-    pub message_matches: Vec<String>,
-    pub message_not_matches: Vec<String>,
+    pub message_matches: Option<String>,
+    pub message_not_matches: Option<String>,
     pub max_results: Option<usize>,
 }
 

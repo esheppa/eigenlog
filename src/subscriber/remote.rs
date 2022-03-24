@@ -1,5 +1,6 @@
 use super::*;
-use futures::{channel::mpsc, future, StreamExt, TryFutureExt};
+use futures_channel::mpsc;
+use futures_util::{future, StreamExt, TryFutureExt};
 use reqwest::header;
 use std::{ops, pin};
 
@@ -59,7 +60,7 @@ where
 
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
 
-    sender: Option<pin::Pin<Box<dyn futures::Future<Output = Result<()>>>>>,
+    sender: Option<pin::Pin<Box<dyn futures_util::Future<Output = Result<()>>>>>,
 
     generator: ulid::Generator,
 }

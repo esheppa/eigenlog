@@ -1,5 +1,5 @@
 use super::*;
-use futures::{future, StreamExt};
+use futures_util::{future, StreamExt};
 
 impl Subscriber {
     pub fn new_local(
