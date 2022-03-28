@@ -82,7 +82,7 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
             let any_not_matches = must_not_match
                 .as_ref()
                 .map(|n| n.is_match(&data.message))
-                .unwrap_or(false);
+                .unwrap_or(false); // if empty this should have no effect
 
             // exit early if we want to filter it out
             if any_not_matches {
@@ -92,7 +92,7 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
             let any_matches = must_match
                 .as_ref()
                 .map(|m| m.is_match(&data.message))
-                .unwrap_or(false);
+                .unwrap_or(true); // if empty this should have no effect
 
             if !any_matches {
                 continue;
