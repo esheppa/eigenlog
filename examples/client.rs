@@ -1,10 +1,13 @@
 // This demonstrates the use of a rust client for the log server
 
-use eigenlog::{self, db};
+use eigenlog::{self, db, ParseLogTreeInfoError};
 use std::{
     io::{self, Write},
-    path, result, str, time,
+    path, result, str,
 };
+
+#[cfg(not(feature = "wasm"))]
+use std::time;
 
 // CLI command to get info
 // CLI command to query (takes params)
@@ -155,6 +158,7 @@ impl DataSource {
                                     message_not_matches,
                                     max_results,
                                 },
+                                #[cfg(not(feature = "wasm"))]
                                 time::Duration::from_secs(15),
                             )
                             .await?;
@@ -167,13 +171,13 @@ impl DataSource {
 }
 
 enum CmdResult {
-    Info(Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>),
+    Info(Vec<result::Result<eigenlog::LogTreeInfo, ParseLogTreeInfoError>>),
     Query(Vec<eigenlog::QueryResponse>),
     Detail(eigenlog::LogTreeDetail),
 }
 
-impl From<Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>> for CmdResult {
-    fn from(i: Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>) -> CmdResult {
+impl From<Vec<result::Result<eigenlog::LogTreeInfo, ParseLogTreeInfoError>>> for CmdResult {
+    fn from(i: Vec<result::Result<eigenlog::LogTreeInfo, ParseLogTreeInfoError>>) -> CmdResult {
         CmdResult::Info(i)
     }
 }
@@ -298,7 +302,7 @@ enum Cmd {
 }
 
 fn info_to_table(
-    info: Vec<result::Result<eigenlog::LogTreeInfo, db::ParseLogTreeInfoError>>,
+    info: Vec<result::Result<eigenlog::LogTreeInfo, ParseLogTreeInfoError>>,
 ) -> (comfy_table::Table, comfy_table::Table) {
     let mut table = comfy_table::Table::new();
     table.set_header(vec!["Host", "App", "Level", "Min", "Max"]);

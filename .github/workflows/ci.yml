@@ -16,9 +16,43 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Install latest nightly
+      uses: actions-rs/toolchain@v1
+      with:
+          target: wasm32-unknown-unknown
     - name: Check formatting
       run: cargo fmt -- --check
     - name: Check lints
       run: cargo clippy
+    - name: Check feature combinations
+      run: cargo check --features wasm-client --target wasm32-unknown-unknown
+    - name: Check feature combinations
+      run: cargo check --features wasm-subscriber --target wasm32-unknown-unknown
+    - name: Check feature combinations
+      run: cargo check --features wasm-client,wasm-subscriber --target wasm32-unknown-unknown
+    - name: Check feature combinations
+      run: cargo check --features remote-subscriber,bincode
+    - name: Check feature combinations
+      run: cargo check --features remote-subscriber,json
+    - name: Check feature combinations
+      run: cargo check --features remote-subscriber,json,bincode
+    - name: Check feature combinations
+      run: cargo check --features local-subscriber,bincode
+    - name: Check feature combinations
+      run: cargo check --features local-subscriber,json
+    - name: Check feature combinations
+      run: cargo check --features local-subscriber,json,bincode
+    - name: Check feature combinations
+      run: cargo check --features server,bincode
+    - name: Check feature combinations
+      run: cargo check --features server,json
+    - name: Check feature combinations
+      run: cargo check --features server,json,bincode
+    - name: Check feature combinations
+      run: cargo check --features client,bincode
+    - name: Check feature combinations
+      run: cargo check --features client,json
+    - name: Check feature combinations
+      run: cargo check --features client,json,bincode
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test --verbose --features all

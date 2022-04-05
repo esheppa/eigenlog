@@ -24,8 +24,8 @@ pub enum AppReply<T: serde::Serialize> {
 
 impl<T: serde::Serialize + Send> warp::Reply for AppReply<T> {
     fn into_response(self) -> warp::reply::Response {
+        #[cfg(feature = "json")]
         match self {
-            #[cfg(feature = "json")]
             AppReply::Json(j) => warp::reply::json(&j).into_response(),
             AppReply::Bincode(i) => http::Response::new(hyper::Body::from(
                 bincode::serialize(&i).expect("Bincode Serialize should succeed"),
@@ -33,6 +33,16 @@ impl<T: serde::Serialize + Send> warp::Reply for AppReply<T> {
             AppReply::Empty => http::Response::default(),
             AppReply::Error(e) => e.into_response(),
         }
+
+        #[cfg(not(feature = "json"))]
+        match self {
+            AppReply::Bincode(i) => http::Response::new(hyper::Body::from(
+                bincode::serialize(&i).expect("Bincode Serialize should succeed"),
+            )),
+            AppReply::Empty => http::Response::default(),
+            AppReply::Error(e) => e.into_response(),
+        }
+
     }
 }
 
@@ -70,10 +80,15 @@ async fn submit(
         return Err(Error::InvalidApiKey(api_key));
     }
 
+    #[cfg(feature = "json")]
     let batch: LogBatch = match content_type {
         SerializationFormat::Bincode => bincode::deserialize(&bytes)?,
-        #[cfg(feature = "json")]
         SerializationFormat::Json => serde_json::from_slice(&bytes)?,
+    };
+
+    #[cfg(not(feature = "json"))]
+    let batch: LogBatch = match content_type {
+        SerializationFormat::Bincode => bincode::deserialize(&bytes)?,
     };
 
     db::submit(&host, &app, level, batch, &db)?;
@@ -101,10 +116,15 @@ async fn query(
     // in the short term we will leave it like this
     let response = db::query(params, &db)?;
 
+    #[cfg(feature = "json")]
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
-        #[cfg(feature = "json")]
         SerializationFormat::Json => Ok(AppReply::Json(response)),
+    }
+
+    #[cfg(not(feature = "json"))]
+    match accept {
+        SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
     }
 }
 
@@ -124,10 +144,16 @@ async fn detail(
 
     let response = db::detail(&host, &app, level, &db)?;
 
+    #[cfg(feature = "json")]
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
-        #[cfg(feature = "json")]
         SerializationFormat::Json => Ok(AppReply::Json(response)),
+    }
+
+
+    #[cfg(not(feature = "json"))]
+    match accept {
+        SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
     }
 }
 
@@ -139,7 +165,7 @@ async fn info(
     // vec LogTreeInfo isn't that nice, but
     // it is the best option when using JSON serialization.
     // for Bincode or RON there could be another endpoint.
-) -> Result<AppReply<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>>> {
+) -> Result<AppReply<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>>> {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
@@ -147,10 +173,15 @@ async fn info(
 
     let db_info = db::info(&db)?;
 
+    #[cfg(feature = "json")]
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(db_info)),
-        #[cfg(feature = "json")]
         SerializationFormat::Json => Ok(AppReply::Json(db_info)),
+    }
+
+    #[cfg(not(feature = "json"))]
+    match accept {
+        SerializationFormat::Bincode => Ok(AppReply::Bincode(db_info)),
     }
 }
 
@@ -217,7 +248,7 @@ pub fn create_info_endpoint(
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> impl warp::Filter<
-    Extract = (AppReply<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>>,),
+    Extract = (AppReply<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>>,),
     Error = warp::Rejection,
 > + Clone {
     warp::path("info")

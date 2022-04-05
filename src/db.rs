@@ -135,9 +135,7 @@ pub fn detail(host: &Host, app: &App, level: Level, db: &sled::Db) -> Result<Log
     })
 }
 
-#[derive(thiserror::Error, Debug, serde::Deserialize, serde::Serialize)]
-#[error("Parse log tree info: {0}")]
-pub struct ParseLogTreeInfoError(String);
+
 
 pub fn info(db: &sled::Db) -> Result<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>> {
     let mut db_info = Vec::new();

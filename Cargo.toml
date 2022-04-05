@@ -3,6 +3,15 @@ name = "eigenlog"
 version = "0.3.0"
 edition = "2021"
 
+[[example]]
+name = "client"
+required-features = ["client", "bincode"]
+
+[[example]]
+name = "server"
+required-features = ["server"]
+
+
 [dependencies]
 cfg-if = "1.0.0"
 http = "0.2.6"
@@ -79,14 +88,14 @@ features = ["full"]
 [features]
 json = ["serde_json", "reqwest/json"]
 bincode = [ "bincode-crate" ]
-client = ["reqwest", "bincode", "async-trait", "url"]
+client = ["reqwest", "async-trait", "url"]
 remote-subscriber = ["reqwest", "async-trait", "url"] # needs one of bincode or json
 local-subscriber = ["sled", "bincode"]
 server = ["sled", "warp", "bincode"]
-# default = ["remote-subscriber", "bincode"]
-
-# for dev
-default = ["all"]
+wasm = []
+wasm-cilent = ["client", "wasm"]
+wasm-subscriber = ["remote-subscriber", "wasm"]
+default = []
 all = ["client", "server", "remote-subscriber", "local-subscriber", "json", "bincode", "url"]
 
 

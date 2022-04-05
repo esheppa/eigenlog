@@ -19,7 +19,7 @@ pub mod server;
 #[cfg(any(feature = "remote-subscriber", feature = "local-subscriber"))]
 pub mod subscriber;
 
-#[cfg(any(feature = "server", feature = "local-subscriber", feature = "bincode"))]
+#[cfg(any(feature = "server", feature = "local-subscriber"))]
 pub mod db;
 
 cfg_if::cfg_if! {
@@ -65,11 +65,22 @@ impl<'a> From<&log::Record<'a>> for LogData {
 
 type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
 
+#[cfg(all(feature = "json", not(feature = "bincode")))]
 #[derive(Clone, Debug, Copy)]
 pub enum SerializationFormat {
-    #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+    Json,
+}
+
+#[cfg(all(feature = "bincode", not(feature = "json")))]
+#[derive(Clone, Debug, Copy)]
+pub enum SerializationFormat {    
     Bincode,
-    #[cfg(feature = "json")]
+}
+
+#[cfg(all(feature = "bincode", feature = "json"))]
+#[derive(Clone, Debug, Copy)]
+pub enum SerializationFormat {
+    Bincode,
     Json,
 }
 
@@ -79,7 +90,7 @@ impl str::FromStr for SerializationFormat {
         match s {
             #[cfg(feature = "json")]
             APPLICATION_JSON => Ok(SerializationFormat::Json),
-            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+            #[cfg(feautre = "bincode")]
             OCTET_STREAM => Ok(SerializationFormat::Bincode),
             otherwise => Err(Error::UnsupportedSerializationMimeType(
                 otherwise.to_string(),
@@ -90,10 +101,19 @@ impl str::FromStr for SerializationFormat {
 
 impl SerializationFormat {
     fn header_value(&self) -> header::HeaderValue {
+        #[cfg(all(feature = "bincode", not(feature = "json")))]
         match self {
-            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
             SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
-            #[cfg(feature = "json")]
+        }
+
+        #[cfg(all(feature = "json", not(feature = "bincode")))]
+        match self {
+            SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
+        }
+
+        #[cfg(all(feature = "bincode", feature = "json"))]
+        match self {
+            SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
             SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
         }
     }
@@ -101,10 +121,17 @@ impl SerializationFormat {
     where
         T: serde::Serialize,
     {
+        #[cfg(all(feature = "bincode", not(feature = "json")))]
         match self {
-            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
             SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
-            #[cfg(feature = "json")]
+        }
+        #[cfg(all(feature = "json", not(feature = "bincode")))]
+        match self {
+            SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
+        }
+        #[cfg(all(feature = "bincode", feature = "json"))]
+        match self {
+            SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
             SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
         }
     }
@@ -533,6 +560,10 @@ pub enum Error {
     #[error("Custom: {0}")]
     Custom(String),
 }
+
+#[derive(thiserror::Error, Debug, serde::Deserialize, serde::Serialize)]
+#[error("Parse log tree info: {0}")]
+pub struct ParseLogTreeInfoError(String);
 
 #[cfg(test)]
 mod tests {
