@@ -42,7 +42,6 @@ impl<T: serde::Serialize + Send> warp::Reply for AppReply<T> {
             AppReply::Empty => http::Response::default(),
             AppReply::Error(e) => e.into_response(),
         }
-
     }
 }
 
@@ -149,7 +148,6 @@ async fn detail(
         SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
         SerializationFormat::Json => Ok(AppReply::Json(response)),
     }
-
 
     #[cfg(not(feature = "json"))]
     match accept {

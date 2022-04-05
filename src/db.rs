@@ -135,8 +135,6 @@ pub fn detail(host: &Host, app: &App, level: Level, db: &sled::Db) -> Result<Log
     })
 }
 
-
-
 pub fn info(db: &sled::Db) -> Result<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>> {
     let mut db_info = Vec::new();
 

@@ -9,14 +9,12 @@ impl<T> ApiConfig<T>
 where
     T: ConnectionProxy,
 {
-
     #[cfg(all(feature = "json", not(feature = "bincode")))]
     pub async fn query(
         &self,
         client: &reqwest::Client,
         params: &QueryParams,
-        #[cfg(not(feature = "wasm"))]
-        timeout: time::Duration,
+        #[cfg(not(feature = "wasm"))] timeout: time::Duration,
     ) -> Result<Vec<QueryResponse>> {
         let url = self.base_url.join("query")?;
 
@@ -30,16 +28,11 @@ where
                 header::HeaderValue::from_static(APPLICATION_JSON),
             )
             .query(&params);
-        
+
         #[cfg(not(feature = "wasm"))]
         let query = query.timeout(timeout);
 
-        let resp = query
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+        let resp = query.send().await?.error_for_status()?.json().await?;
 
         Ok(resp)
     }
@@ -49,8 +42,7 @@ where
         &self,
         client: &reqwest::Client,
         params: &QueryParams,
-        #[cfg(not(feature = "wasm"))]
-        timeout: time::Duration,
+        #[cfg(not(feature = "wasm"))] timeout: time::Duration,
     ) -> Result<Vec<QueryResponse>> {
         let url = self.base_url.join("query")?;
 
@@ -68,12 +60,7 @@ where
         #[cfg(not(feature = "wasm"))]
         let query = query.timeout(timeout);
 
-        let resp = query
-            .send()
-            .await?
-            .error_for_status()?
-            .bytes()
-            .await?;
+        let resp = query.send().await?.error_for_status()?.bytes().await?;
         Ok(bincode::deserialize(&resp)?)
     }
 

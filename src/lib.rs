@@ -73,7 +73,7 @@ pub enum SerializationFormat {
 
 #[cfg(all(feature = "bincode", not(feature = "json")))]
 #[derive(Clone, Debug, Copy)]
-pub enum SerializationFormat {    
+pub enum SerializationFormat {
     Bincode,
 }
 
