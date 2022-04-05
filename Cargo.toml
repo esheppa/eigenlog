@@ -11,6 +11,8 @@ required-features = ["client", "bincode"]
 name = "server"
 required-features = ["server"]
 
+[workspace]
+members = ["xtask"]
 
 [dependencies]
 cfg-if = "1.0.0"
@@ -93,7 +95,7 @@ remote-subscriber = ["reqwest", "async-trait", "url"] # needs one of bincode or 
 local-subscriber = ["sled", "bincode"]
 server = ["sled", "warp", "bincode"]
 wasm = []
-wasm-cilent = ["client", "wasm"]
+wasm-client = ["client", "wasm"]
 wasm-subscriber = ["remote-subscriber", "wasm"]
 default = []
 all = ["client", "server", "remote-subscriber", "local-subscriber", "json", "bincode", "url"]

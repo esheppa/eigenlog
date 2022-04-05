@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2021"
+
+[[bin]]
+name = "run"
+path = "run.rs"
+
+[dependencies]
+itertools = "0.10.3"

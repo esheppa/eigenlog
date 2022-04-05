@@ -1,6 +1,7 @@
 #![deny(warnings)]
 #![deny(clippy::all)]
 // otherwise the feature combinations would be too messy
+#![allow(unused_imports)]
 #![allow(dead_code)]
 
 //! We have a seperate tree created for each combination of hostname and log level. While this is slightly less efficient when wanting to
@@ -153,6 +154,7 @@ pub trait ConnectionProxy: Send + Sync + Unpin {
 pub struct BasicProxy {
     pub api_key: String,
 }
+#[cfg(any(feature = "client", feature = "remote-subscriber"))]
 impl BasicProxy {
     pub fn init(api_key: String) -> sync::Arc<BasicProxy> {
         sync::Arc::new(BasicProxy { api_key })

@@ -1,5 +1,4 @@
 use super::*;
-// use std::task;
 use futures_channel::mpsc;
 
 #[cfg(feature = "local-subscriber")]

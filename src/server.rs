@@ -15,8 +15,16 @@ fn add<C: Clone + Send>(
     warp::any().map(move || c.clone())
 }
 
+#[cfg(feature = "json")]
 pub enum AppReply<T: serde::Serialize> {
     Json(T),
+    Bincode(T),
+    Empty,
+    Error(String),
+}
+
+#[cfg(not(feature = "json"))]
+pub enum AppReply<T: serde::Serialize> {
     Bincode(T),
     Empty,
     Error(String),

@@ -1,7 +1,6 @@
 use super::*;
 #[cfg(feature = "bincode")]
 use bincode_crate as bincode;
-#[allow(unused_imports)]
 #[cfg(not(feature = "wasm"))]
 use std::time;
 
