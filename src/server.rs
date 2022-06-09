@@ -1,5 +1,5 @@
 use super::*;
-use futures::FutureExt;
+use futures_util::FutureExt;
 use std::{collections, convert, result, sync};
 use warp::{
     http::{self, header},
@@ -16,6 +16,7 @@ fn add<C: Clone + Send>(
 }
 
 pub enum AppReply<T: serde::Serialize> {
+    #[cfg(feature = "json")]
     Json(T),
     Bincode(T),
     Empty,
@@ -139,7 +140,7 @@ async fn info(
     // vec LogTreeInfo isn't that nice, but
     // it is the best option when using JSON serialization.
     // for Bincode or RON there could be another endpoint.
-) -> Result<AppReply<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>>> {
+) -> Result<AppReply<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>>> {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
@@ -217,7 +218,7 @@ pub fn create_info_endpoint(
     db: sled::Db,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> impl warp::Filter<
-    Extract = (AppReply<Vec<result::Result<LogTreeInfo, db::ParseLogTreeInfoError>>>,),
+    Extract = (AppReply<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>>,),
     Error = warp::Rejection,
 > + Clone {
     warp::path("info")

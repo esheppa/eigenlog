@@ -55,10 +55,16 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
         .to_be_bytes();
 
     let mut response = Vec::new();
-    let re = params
-        .message_regex
-        .as_ref()
-        .and_then(|msg| regex::Regex::new(msg).ok());
+
+    let must_match = params
+        .message_matches
+        .map(|s| regex::Regex::new(&s).map_err(crate::Error::from))
+        .transpose()?;
+    let must_not_match = params
+        .message_not_matches
+        .map(|s| regex::Regex::new(&s).map_err(crate::Error::from))
+        .transpose()?;
+
     let mut rows = 0;
     for tree_name in relevant_trees {
         let tree = db.open_tree(tree_name.to_string())?;
@@ -72,11 +78,26 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
             let (key, value) = item?;
             let data = bincode::deserialize::<LogData>(&value)?;
 
-            if let Some(regex) = re.as_ref() {
-                if !regex.is_match(&data.message) {
-                    continue;
-                }
+            // exit early if we want to filter out
+            let any_not_matches = must_not_match
+                .as_ref()
+                .map(|n| n.is_match(&data.message))
+                .unwrap_or(false); // if empty this should have no effect
+
+            // exit early if we want to filter it out
+            if any_not_matches {
+                continue;
             }
+
+            let any_matches = must_match
+                .as_ref()
+                .map(|m| m.is_match(&data.message))
+                .unwrap_or(true); // if empty this should have no effect
+
+            if !any_matches {
+                continue;
+            }
+
             response.push(QueryResponse {
                 host: tree_name.host.clone(),
                 app: tree_name.app.clone(),
@@ -94,29 +115,25 @@ pub fn query(params: QueryParams, db: &sled::Db) -> Result<Vec<QueryResponse>> {
 pub fn detail(host: &Host, app: &App, level: Level, db: &sled::Db) -> Result<LogTreeDetail> {
     let tree = db.open_tree(level.get_tree_name(host, app))?;
 
-    let (rows, row_detail) =
-        tree.iter()
-            .try_fold((0, collections::BTreeMap::new()), |(r, mut rd), item| {
-                let (key, _) = item?;
-                let ulid_key = ulid::Ulid::from(ivec_be_to_u128(key)?);
-                rd.entry(ulid_key.datetime().naive_local().date())
-                    .and_modify(|c| *c += 1)
-                    .or_default();
-                Ok::<_, crate::Error>((r + 1, rd))
-            })?;
+    let mut row_detail = collections::BTreeMap::new();
+
+    for row in tree.iter() {
+        let (key, _) = row?;
+        let ulid_key = ulid::Ulid::from(ivec_be_to_u128(key)?);
+        row_detail
+            .entry(ulid_key.datetime().naive_local().date())
+            .and_modify(|c| *c += 1)
+            .or_insert(1);
+    }
 
     Ok(LogTreeDetail {
         app: app.clone(),
         host: host.clone(),
         level,
-        rows,
+        rows: row_detail.values().sum(),
         row_detail,
     })
 }
-
-#[derive(thiserror::Error, Debug, serde::Deserialize, serde::Serialize)]
-#[error("Parse log tree info: {0}")]
-pub struct ParseLogTreeInfoError(String);
 
 pub fn info(db: &sled::Db) -> Result<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>> {
     let mut db_info = Vec::new();

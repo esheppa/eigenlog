@@ -1,6 +1,7 @@
 #![deny(warnings)]
 #![deny(clippy::all)]
 // otherwise the feature combinations would be too messy
+#![allow(unused_imports)]
 #![allow(dead_code)]
 
 //! We have a seperate tree created for each combination of hostname and log level. While this is slightly less efficient when wanting to
@@ -19,19 +20,21 @@ pub mod server;
 #[cfg(any(feature = "remote-subscriber", feature = "local-subscriber"))]
 pub mod subscriber;
 
-#[cfg(any(feature = "server", feature = "local-subscriber", feature = "bincode"))]
+#[cfg(any(feature = "server", feature = "local-subscriber"))]
 pub mod db;
 
-cfg_if::cfg_if! {
-    if #[cfg(not(any(feature = "bincode", feature = "json")))] {
-        compile_error!("eigenlog: must select at least one of `json` and `bincode`");
-    }
+const fn check_bincode_or_json() {
+    #[cfg(not(any(feature = "bincode", feature = "json")))]
+    compile_error!("eigenlog: must select at least one of `json` or `bincode`");
 }
-
-cfg_if::cfg_if! {
-    if #[cfg(not(any(feature = "client", feature = "server", feature = "remote-subscriber", feature = "local-subscriber")))] {
-        compile_error!("eigenlog: must select at least one of `client`, `server` or `subscriber`");
-    }
+const fn check_client_or_server_or_subscriber() {
+    #[cfg(not(any(
+        feature = "client",
+        feature = "server",
+        feature = "remote-subscriber",
+        feature = "local-subscriber"
+    )))]
+    compile_error!("eigenlog: must select at least one of `client`, `server` or `subscriber`");
 }
 
 const API_KEY_HEADER: &str = "x-api-key";
@@ -67,7 +70,7 @@ type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
 
 #[derive(Clone, Debug, Copy)]
 pub enum SerializationFormat {
-    #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+    #[cfg(feature = "bincode")]
     Bincode,
     #[cfg(feature = "json")]
     Json,
@@ -79,7 +82,7 @@ impl str::FromStr for SerializationFormat {
         match s {
             #[cfg(feature = "json")]
             APPLICATION_JSON => Ok(SerializationFormat::Json),
-            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+            #[cfg(feautre = "bincode")]
             OCTET_STREAM => Ok(SerializationFormat::Bincode),
             otherwise => Err(Error::UnsupportedSerializationMimeType(
                 otherwise.to_string(),
@@ -91,7 +94,7 @@ impl str::FromStr for SerializationFormat {
 impl SerializationFormat {
     fn header_value(&self) -> header::HeaderValue {
         match self {
-            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+            #[cfg(feature = "bincode")]
             SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
             #[cfg(feature = "json")]
             SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
@@ -102,7 +105,7 @@ impl SerializationFormat {
         T: serde::Serialize,
     {
         match self {
-            #[cfg(any(feautre = "bincode", feature = "client", feature = "server"))]
+            #[cfg(feature = "bincode")]
             SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
             #[cfg(feature = "json")]
             SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
@@ -126,6 +129,7 @@ pub trait ConnectionProxy: Send + Sync + Unpin {
 pub struct BasicProxy {
     pub api_key: String,
 }
+#[cfg(any(feature = "client", feature = "remote-subscriber"))]
 impl BasicProxy {
     pub fn init(api_key: String) -> sync::Arc<BasicProxy> {
         sync::Arc::new(BasicProxy { api_key })
@@ -228,7 +232,8 @@ pub struct QueryParams {
     pub end_timestamp: Option<chrono::DateTime<chrono::Utc>>,
     pub host_contains: Option<Host>,
     pub app_contains: Option<App>,
-    pub message_regex: Option<String>,
+    pub message_matches: Option<String>,
+    pub message_not_matches: Option<String>,
     pub max_results: Option<usize>,
 }
 
@@ -289,7 +294,7 @@ impl AsRef<str> for Host {
 }
 
 static HOST_REGEX: once_cell::Lazy<regex::Regex> =
-    once_cell::Lazy::new(|| regex::Regex::new("[A-Za-z0-9]+").unwrap());
+    once_cell::Lazy::new(|| regex::Regex::new("^[A-Za-z0-9]+$").unwrap());
 
 impl std::str::FromStr for Host {
     type Err = HostParseError;
@@ -477,6 +482,10 @@ pub enum Error {
     #[error("Header: {0}")]
     Header(#[from] reqwest::header::InvalidHeaderValue),
 
+    #[cfg(any(feature = "client", feature = "remote-subscriber"))]
+    #[error("Parse url: {0}")]
+    Url(#[from] url::ParseError),
+
     #[error("API key `{0}` is not valid")]
     InvalidApiKey(String),
 
@@ -516,9 +525,36 @@ pub enum Error {
     #[error("Setting logger: {0}")]
     Log(#[from] log::SetLoggerError),
 
+    #[error("Parsing regex: {0}")]
+    Regex(#[from] regex::Error),
+
     #[error("Parse log tree info: {0}")]
     ParseLogTreeInfo(String),
 
     #[error("Log subscriber was closed")]
     LogSubscriberClosed,
+
+    #[error("Custom: {0}")]
+    Custom(String),
+}
+
+#[derive(thiserror::Error, Debug, serde::Deserialize, serde::Serialize)]
+#[error("Parse log tree info: {0}")]
+pub struct ParseLogTreeInfoError(String);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_host() {
+        assert!("abc123".parse::<Host>().is_ok());
+        assert!("abc-123".parse::<Host>().is_err());
+    }
+
+    #[test]
+    fn test_app() {
+        assert!("abc123".parse::<App>().is_ok());
+        assert!("abc-123".parse::<App>().is_err());
+    }
 }

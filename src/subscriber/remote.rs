@@ -1,9 +1,8 @@
 use super::*;
-use futures::FutureExt;
-use futures::TryFutureExt;
+use futures_channel::mpsc;
+use futures_util::{future, StreamExt, TryFutureExt};
 use reqwest::header;
-
-use std::pin;
+use std::{ops, pin};
 
 impl Subscriber {
     pub fn new_remote<T>(
@@ -11,14 +10,14 @@ impl Subscriber {
         api_config: ApiConfig<T>,
         host: Host,
         app: App,
-        level: log::Level,
+        level: log::LevelFilter,
         cache_limit: CacheLimit,
     ) -> (Subscriber, DataSender<T>)
     where
         T: ConnectionProxy,
     {
-        let (tx1, rx1) = mpsc::unbounded_channel();
-        let (tx2, rx2) = mpsc::unbounded_channel();
+        let (tx1, rx1) = mpsc::unbounded();
+        let (tx2, rx2) = mpsc::unbounded();
 
         (
             Subscriber {
@@ -61,7 +60,7 @@ where
 
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
 
-    sender: Option<pin::Pin<Box<dyn futures::Future<Output = Result<()>>>>>,
+    sender: Option<pin::Pin<Box<dyn futures_util::Future<Output = Result<()>>>>>,
 
     generator: ulid::Generator,
 }
@@ -71,120 +70,95 @@ where
     T: ConnectionProxy + Sync + Send + 'static,
 {
     fn drop(&mut self) {
+        eprintln!("Dropping DataSender");
         let cache = std::mem::take(&mut self.cache);
-        let (tx, rx) = std::sync::mpsc::channel();
 
-        let trace_req =
-            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Trace);
-        let debug_req =
-            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Debug);
-        let info_req =
-            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Info);
-        let warn_req =
-            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Warn);
-        let error_req =
-            prepare_without_batch(&self.api_config, &self.host, &self.app, log::Level::Error);
-
-        let serialization_format = self.api_config.serialization_format;
-        let proxy = self.api_config.proxy.clone();
-        let handle = std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            rt.block_on(async {
-                while let Ok(msg) = rx.recv() {
-                    if let Some((level, batch)) = msg {
-                        let batch = serialization_format.serialize(batch);
-
-                        let req = match level {
-                            log::Level::Trace => trace_req.try_clone(),
-                            log::Level::Debug => debug_req.try_clone(),
-                            log::Level::Info => info_req.try_clone(),
-                            log::Level::Warn => warn_req.try_clone(),
-                            log::Level::Error => error_req.try_clone(),
-                        };
-
-                        match batch {
-                            Ok(batch) => {
-                                if let Some(req) = req {
-                                    send_batch(req.body(batch), proxy.clone()).await;
-                                }
-                            }
-                            Err(_) => break,
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            });
-        });
-
-        for (level, batch) in cache {
-            let _ = tx.send(Some((level, batch)));
+        for (level, logs) in cache {
+            for (id, data) in logs {
+                eprintln!("[{} {}]: {}", id.datetime(), level, data.message)
+            }
         }
-
-        let _ = tx.send(None);
-
-        let _ = handle.join();
     }
 }
 
-// // We impl Future rather than using async fn's here as this allows more granular control
-// // on sending the batches to the remote server but still recieving new batches as fast as possible
-impl<T> futures::Future for DataSender<T>
+impl<T> DataSender<T>
 where
     T: ConnectionProxy + Sync + Send + 'static,
 {
-    type Output = ();
-    fn poll(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Self::Output> {
-        let this = std::pin::Pin::into_inner(self);
-
-        match this.receiver.poll_recv(cx) {
-            // do nothing, will will return a pending later if needed
-            task::Poll::Pending => (),
-
-            // recieved a new log message, add it to the cache
-            task::Poll::Ready(Some((level, data))) => {
-                let mut batch = this.cache.remove(&level).unwrap_or_default();
-
-                batch.insert(this.generator.generate().unwrap(), data);
-
-                this.cache.insert(level, batch);
+    pub async fn run(mut self) {
+        // get message and try to send
+        // always select on both and do the next
+        loop {
+            if let ops::ControlFlow::Break(()) = self.run_once().await {
+                eprintln!("DataSender<T>'s channel has been hung up, exiting...");
+                break;
             }
-            // if channel is hung up on, complete the future
-            task::Poll::Ready(None) => return task::Poll::Ready(()),
         }
+    }
 
-        if let Some(mut fut) = this.sender.take() {
-            match fut.poll_unpin(cx) {
-                // current send isn't yet finished
-                task::Poll::Pending => {
-                    this.sender = Some(fut);
-                    return task::Poll::Pending;
+    fn add_to_cache(&mut self, msg: Option<(log::Level, LogData)>) -> Option<()> {
+        if let Some((level, data)) = msg {
+            let mut batch = self.cache.remove(&level).unwrap_or_default();
+
+            batch.insert(self.generator.generate().unwrap(), data);
+
+            self.cache.insert(level, batch);
+            None
+        } else {
+            Some(())
+        }
+    }
+
+    async fn run_once(&mut self) -> ops::ControlFlow<()> {
+        // check if we have an existing send future that needs polling
+        match self.sender.take() {
+            // if we have an existing send future, poll it while also polling the receiver
+            // this ensures that the send is progressed, while also receiving new log messages
+            Some(fut) => match future::select(Box::pin(self.receiver.next()), fut).await {
+                future::Either::Left((msg, send_fut)) => {
+                    // sender is still in progress, so place it back to be polled again
+                    self.sender = Some(send_fut);
+
+                    if let Some((level, data)) = msg {
+                        let mut batch = self.cache.remove(&level).unwrap_or_default();
+
+                        batch.insert(self.generator.generate().unwrap(), data);
+
+                        self.cache.insert(level, batch);
+                        // once we have added to the cache we want to exit the fn
+                        // and wait again on ether the log message or send completing.
+                        return ops::ControlFlow::Continue(());
+                    } else {
+                        return ops::ControlFlow::Break(());
+                    }
                 }
-                // previous send has finished, ready for the next one
-                task::Poll::Ready(prev_res) => {
-                    if let Err(e) = prev_res {
+                future::Either::Right((completed_send, _)) => {
+                    if let Err(e) = completed_send {
                         eprintln!("Error during sending of log message: {}", e);
                     }
                 }
+            },
+            None => {
+                if let Some((level, data)) = self.receiver.next().await {
+                    let mut batch = self.cache.remove(&level).unwrap_or_default();
+
+                    batch.insert(self.generator.generate().unwrap(), data);
+
+                    self.cache.insert(level, batch);
+                } else {
+                    return ops::ControlFlow::Break(());
+                }
             }
         }
 
-        // due to Error having the smallest associated value
-        // Error's will be sent in preference
-        let mut detached_cache = std::mem::take(&mut this.cache);
+        let mut detached_cache = std::mem::take(&mut self.cache);
         for (level, batch) in detached_cache.iter_mut() {
-            if this.cache_limit.should_send(*level, batch) {
+            if self.cache_limit.should_send(*level, batch) {
                 let batch = std::mem::take(batch);
-                let req = prepare_without_batch(&this.api_config, &this.host, &this.app, *level);
-                let local_proxy = this.api_config.proxy.clone();
-                let local_format = this.api_config.serialization_format;
-                this.sender = Some(Box::pin(local_proxy.proxy(req).and_then(
+                let req = prepare_without_batch(&self.api_config, &self.host, &self.app, *level);
+                let local_proxy = self.api_config.proxy.clone();
+                let local_format = self.api_config.serialization_format;
+                self.sender = Some(Box::pin(local_proxy.proxy(req).and_then(
                     move |r| async move {
                         r.body(local_format.serialize(&batch)?)
                             .send()
@@ -197,9 +171,9 @@ where
                 break;
             }
         }
-        this.cache = detached_cache;
+        self.cache = detached_cache;
 
-        task::Poll::Pending
+        ops::ControlFlow::Continue(())
     }
 }
 
@@ -224,19 +198,4 @@ where
         header::CONTENT_TYPE,
         config.serialization_format.header_value(),
     )
-}
-
-async fn send_batch<T>(request: reqwest::RequestBuilder, proxy: sync::Arc<T>)
-where
-    T: ConnectionProxy + Sync + Send + 'static,
-{
-    if let Err(e) = proxy
-        .proxy(request)
-        .map_err(|e| e.to_string())
-        .and_then(|req| req.send().map_err(|e| e.to_string()))
-        .await
-        .and_then(|res| res.error_for_status().map_err(|e| e.to_string()))
-    {
-        eprintln!("Error sending batch: {}", e);
-    }
 }

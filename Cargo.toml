@@ -1,63 +1,75 @@
 [package]
 name = "eigenlog"
-version = "0.2.0"
-authors = ["Eric Sheppard <eric@sheppard.cloud>"]
-edition = "2018"
+version = "0.3.0"
+edition = "2021"
+
+[[example]]
+name = "client"
+required-features = ["client", "bincode"]
+
+[[example]]
+name = "server"
+required-features = ["server"]
+
+[workspace]
+members = ["xtask"]
 
 [dependencies]
-cfg-if = "1.0"
-http = "0.2"
-once_cell = "1.7"
-regex = "1"
-thiserror = "1"
-uuid = "0.8"
+http = "0.2.6"
+once_cell = "1.10.0"
+regex = "1.5.4"
+thiserror = "1.0.30"
+uuid = "0.8.2"
+futures-util = "0.3.21"
+futures-channel = "0.3.21"
 
 [dependencies.async-trait]
-version = "0.1"
+version = "0.1.52"
 optional = true 
 
 [dependencies.bincode-crate]
-version = "1.3"
+version = "1.3.3"
 package = "bincode"
 optional = true
 
 [dependencies.chrono]
-version = "0.4"
+version = "0.4.19"
+default-features = false
 features = ["serde"]
 
 [dependencies.log]
-version = "0.4"
+version = "0.4.14"
 features = ["serde", "std"]
 
-[dependencies.futures]
-version = "0.3"
-
 [dependencies.reqwest]
-version = "0.11"
+version = "0.11.9"
+features = ["rustls-tls"]
+default-features = false
+optional = true
+
+[dependencies.url]
+version = "2.2.2"
 optional = true
 
 [dependencies.serde]
-version = "1"
+version = "1.0.136"
 features = ["derive"]
 
 [dependencies.serde_json]
-version = "1"
+version = "1.0.79"
 optional = true
 
 [dependencies.sled]
-version = "0.34"
+version = "0.34.7"
 optional = true 
 
-[dependencies.tokio]
-version = "1"
-features = ["full"]
-
 [dependencies.ulid]
-version = "0.4"
+version = "0.5.0"
 features = ["serde","uuid"]
 
 [dependencies.warp]
-version = "0.3"
+version = "0.3.2"
+default-features = false
 optional = true
 
 [dev-dependencies]
@@ -71,17 +83,21 @@ strum = "0.21"
 strum_macros = "0.21"
 env_logger = "0.9"
 
+[dev-dependencies.tokio]
+version = "1.17.0"
+features = ["full"]
+
 [features]
 json = ["serde_json", "reqwest/json"]
 bincode = [ "bincode-crate" ]
-client = ["reqwest", "bincode", "async-trait"]
-remote-subscriber = ["reqwest", "async-trait"] # needs one of bincode or json
+client = ["reqwest", "async-trait", "url"]
+remote-subscriber = ["reqwest", "async-trait", "url"] # needs one of bincode or json
 local-subscriber = ["sled", "bincode"]
 server = ["sled", "warp", "bincode"]
-# default = ["remote-subscriber", "bincode"]
-
-# for dev
-default = ["all"]
-all = ["client", "server", "remote-subscriber", "local-subscriber", "json", "bincode"]
+wasm = []
+wasm-client = ["client", "wasm"]
+wasm-subscriber = ["remote-subscriber", "wasm"]
+default = []
+all = ["client", "server", "remote-subscriber", "local-subscriber", "json", "bincode", "url"]
 
 
