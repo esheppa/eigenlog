@@ -15,16 +15,9 @@ fn add<C: Clone + Send>(
     warp::any().map(move || c.clone())
 }
 
-#[cfg(feature = "json")]
 pub enum AppReply<T: serde::Serialize> {
+    #[cfg(feature = "json")]
     Json(T),
-    Bincode(T),
-    Empty,
-    Error(String),
-}
-
-#[cfg(not(feature = "json"))]
-pub enum AppReply<T: serde::Serialize> {
     Bincode(T),
     Empty,
     Error(String),
@@ -32,18 +25,9 @@ pub enum AppReply<T: serde::Serialize> {
 
 impl<T: serde::Serialize + Send> warp::Reply for AppReply<T> {
     fn into_response(self) -> warp::reply::Response {
-        #[cfg(feature = "json")]
         match self {
+            #[cfg(feature = "json")]
             AppReply::Json(j) => warp::reply::json(&j).into_response(),
-            AppReply::Bincode(i) => http::Response::new(hyper::Body::from(
-                bincode::serialize(&i).expect("Bincode Serialize should succeed"),
-            )),
-            AppReply::Empty => http::Response::default(),
-            AppReply::Error(e) => e.into_response(),
-        }
-
-        #[cfg(not(feature = "json"))]
-        match self {
             AppReply::Bincode(i) => http::Response::new(hyper::Body::from(
                 bincode::serialize(&i).expect("Bincode Serialize should succeed"),
             )),
@@ -87,15 +71,10 @@ async fn submit(
         return Err(Error::InvalidApiKey(api_key));
     }
 
-    #[cfg(feature = "json")]
     let batch: LogBatch = match content_type {
         SerializationFormat::Bincode => bincode::deserialize(&bytes)?,
+        #[cfg(feature = "json")]
         SerializationFormat::Json => serde_json::from_slice(&bytes)?,
-    };
-
-    #[cfg(not(feature = "json"))]
-    let batch: LogBatch = match content_type {
-        SerializationFormat::Bincode => bincode::deserialize(&bytes)?,
     };
 
     db::submit(&host, &app, level, batch, &db)?;
@@ -123,15 +102,10 @@ async fn query(
     // in the short term we will leave it like this
     let response = db::query(params, &db)?;
 
-    #[cfg(feature = "json")]
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
+        #[cfg(feature = "json")]
         SerializationFormat::Json => Ok(AppReply::Json(response)),
-    }
-
-    #[cfg(not(feature = "json"))]
-    match accept {
-        SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
     }
 }
 
@@ -151,15 +125,10 @@ async fn detail(
 
     let response = db::detail(&host, &app, level, &db)?;
 
-    #[cfg(feature = "json")]
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
+        #[cfg(feature = "json")]
         SerializationFormat::Json => Ok(AppReply::Json(response)),
-    }
-
-    #[cfg(not(feature = "json"))]
-    match accept {
-        SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
     }
 }
 
@@ -179,15 +148,10 @@ async fn info(
 
     let db_info = db::info(&db)?;
 
-    #[cfg(feature = "json")]
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(db_info)),
+        #[cfg(feature = "json")]
         SerializationFormat::Json => Ok(AppReply::Json(db_info)),
-    }
-
-    #[cfg(not(feature = "json"))]
-    match accept {
-        SerializationFormat::Bincode => Ok(AppReply::Bincode(db_info)),
     }
 }
 

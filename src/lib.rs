@@ -23,16 +23,18 @@ pub mod subscriber;
 #[cfg(any(feature = "server", feature = "local-subscriber"))]
 pub mod db;
 
-cfg_if::cfg_if! {
-    if #[cfg(not(any(feature = "bincode", feature = "json")))] {
-        compile_error!("eigenlog: must select at least one of `json` and `bincode`");
-    }
+const fn check_bincode_or_json() {
+    #[cfg(not(any(feature = "bincode", feature = "json")))]
+    compile_error!("eigenlog: must select at least one of `json` or `bincode`");
 }
-
-cfg_if::cfg_if! {
-    if #[cfg(not(any(feature = "client", feature = "server", feature = "remote-subscriber", feature = "local-subscriber")))] {
-        compile_error!("eigenlog: must select at least one of `client`, `server` or `subscriber`");
-    }
+const fn check_client_or_server_or_subscriber() {
+    #[cfg(not(any(
+        feature = "client",
+        feature = "server",
+        feature = "remote-subscriber",
+        feature = "local-subscriber"
+    )))]
+    compile_error!("eigenlog: must select at least one of `client`, `server` or `subscriber`");
 }
 
 const API_KEY_HEADER: &str = "x-api-key";
@@ -66,22 +68,11 @@ impl<'a> From<&log::Record<'a>> for LogData {
 
 type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
 
-#[cfg(all(feature = "json", not(feature = "bincode")))]
 #[derive(Clone, Debug, Copy)]
 pub enum SerializationFormat {
-    Json,
-}
-
-#[cfg(all(feature = "bincode", not(feature = "json")))]
-#[derive(Clone, Debug, Copy)]
-pub enum SerializationFormat {
+    #[cfg(feature = "bincode")]
     Bincode,
-}
-
-#[cfg(all(feature = "bincode", feature = "json"))]
-#[derive(Clone, Debug, Copy)]
-pub enum SerializationFormat {
-    Bincode,
+    #[cfg(feature = "json")]
     Json,
 }
 
@@ -102,19 +93,10 @@ impl str::FromStr for SerializationFormat {
 
 impl SerializationFormat {
     fn header_value(&self) -> header::HeaderValue {
-        #[cfg(all(feature = "bincode", not(feature = "json")))]
         match self {
+            #[cfg(feature = "bincode")]
             SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
-        }
-
-        #[cfg(all(feature = "json", not(feature = "bincode")))]
-        match self {
-            SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
-        }
-
-        #[cfg(all(feature = "bincode", feature = "json"))]
-        match self {
-            SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
+            #[cfg(feature = "json")]
             SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
         }
     }
@@ -122,17 +104,10 @@ impl SerializationFormat {
     where
         T: serde::Serialize,
     {
-        #[cfg(all(feature = "bincode", not(feature = "json")))]
         match self {
+            #[cfg(feature = "bincode")]
             SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
-        }
-        #[cfg(all(feature = "json", not(feature = "bincode")))]
-        match self {
-            SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
-        }
-        #[cfg(all(feature = "bincode", feature = "json"))]
-        match self {
-            SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
+            #[cfg(feature = "json")]
             SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
         }
     }
