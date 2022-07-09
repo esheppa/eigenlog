@@ -2,13 +2,16 @@ use super::*;
 use futures_util::{future, StreamExt};
 
 impl Subscriber {
-    pub fn new_local(
+    pub fn new_local<S>(
         on_result: Box<dyn Fn(&'static str) + Sync + Send>,
         host: Host,
         app: App,
         level: log::LevelFilter,
-        db: sled::Db,
-    ) -> (Subscriber, DataSaver) {
+        storage: S,
+    ) -> (Subscriber, DataSaver<S>)
+    where
+        S: db::Storage,
+    {
         let (tx1, rx1) = mpsc::unbounded();
         let (tx2, rx2) = mpsc::unbounded();
 
@@ -24,13 +27,16 @@ impl Subscriber {
                 flush_request: rx2,
                 host,
                 app,
-                db,
+                storage,
             },
         )
     }
 }
 
-pub struct DataSaver {
+pub struct DataSaver<S>
+where
+    S: db::Storage,
+{
     receiver: mpsc::UnboundedReceiver<(log::Level, LogData)>,
 
     flush_request: mpsc::UnboundedReceiver<std::sync::mpsc::SyncSender<()>>,
@@ -39,10 +45,13 @@ pub struct DataSaver {
 
     app: App,
 
-    db: sled::Db,
+    storage: S,
 }
 
-impl DataSaver {
+impl<S> DataSaver<S>
+where
+    S: db::Storage,
+{
     pub async fn run_forever<OnError>(mut self, mut func: OnError)
     where
         OnError: FnMut(Error),
@@ -58,7 +67,7 @@ impl DataSaver {
         let DataSaver {
             receiver,
             flush_request,
-            ref db,
+            ref storage,
             ref host,
             app,
         } = self;
@@ -69,13 +78,10 @@ impl DataSaver {
                     let mut generator = ulid::Generator::new();
                     let mut batch = collections::BTreeMap::new();
                     batch.insert(generator.generate()?, data);
-                    db::submit(host, app, level.into(), batch, db)?;
+                    storage.submit(host, app, level.into(), batch)?;
                 }
                 future::Either::Right((Some(sender), _)) => {
-                    for level in Level::all() {
-                        let tree = db.open_tree(level.get_tree_name(host, app))?;
-                        tree.flush()?;
-                    }
+                    storage.flush(host, app)?;
                     sender.send(())?;
                 }
                 future::Either::Left((None, _)) | future::Either::Right((None, _)) => {

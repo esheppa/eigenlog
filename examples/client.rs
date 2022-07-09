@@ -1,6 +1,6 @@
 // This demonstrates the use of a rust client for the log server
 
-use eigenlog::{self, db, ParseLogTreeInfoError};
+use eigenlog::{self, db::Storage, ParseLogTreeInfoError};
 use std::{
     io::{self, Write},
     path, result, str,
@@ -80,11 +80,11 @@ impl DataSource {
                 let db_handle = sled::open(db_file)?;
                 match cmd {
                     Cmd::Info => {
-                        let info = db::info(&db_handle)?;
+                        let info = db_handle.info()?;
                         Ok(info.into())
                     }
                     Cmd::Detail { host, app, level } => {
-                        let detail = db::detail(&host, &app, level, &db_handle)?;
+                        let detail = db_handle.detail(&host, &app, level)?;
                         Ok(detail.into())
                     }
                     Cmd::Query {
@@ -97,19 +97,16 @@ impl DataSource {
                         message_not_matches,
                         max_results,
                     } => {
-                        let query = db::query(
-                            eigenlog::QueryParams {
-                                max_log_level,
-                                start_timestamp,
-                                end_timestamp,
-                                host_contains,
-                                app_contains,
-                                message_matches,
-                                message_not_matches,
-                                max_results,
-                            },
-                            &db_handle,
-                        )?;
+                        let query = db_handle.query(eigenlog::QueryParams {
+                            max_log_level,
+                            start_timestamp,
+                            end_timestamp,
+                            host_contains,
+                            app_contains,
+                            message_matches,
+                            message_not_matches,
+                            max_results,
+                        })?;
 
                         Ok(query.into())
                     }
