@@ -67,7 +67,7 @@ async fn submit<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> Result<AppReply<()>>
 where
-    S: db::Storage,
+    S: db::Storage + Sync,
 {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
@@ -80,7 +80,7 @@ where
         SerializationFormat::Json => serde_json::from_slice(&bytes)?,
     };
 
-    storage.submit(&host, &app, level, batch)?;
+    storage.submit(host, app, level, batch).await?;
 
     Ok(AppReply::Empty)
 }
@@ -96,7 +96,7 @@ async fn query<S>(
     // for Bincode or RON there could be another endpoint.
 ) -> Result<AppReply<Vec<QueryResponse>>>
 where
-    S: db::Storage,
+    S: db::Storage + Sync,
 {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
@@ -106,7 +106,7 @@ where
     // later this function should access the db via a channel to bridge sync and async
     // this will avoid blocking the runtime
     // in the short term we will leave it like this
-    let response = storage.query(params)?;
+    let response = storage.query(params).await?;
 
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
@@ -125,14 +125,14 @@ async fn detail<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> Result<AppReply<LogTreeDetail>>
 where
-    S: db::Storage,
+    S: db::Storage + Sync,
 {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
     }
 
-    let response = storage.detail(&host, &app, level)?;
+    let response = storage.detail(host, app, level).await?;
 
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
@@ -151,14 +151,14 @@ async fn info<S>(
     // for Bincode or RON there could be another endpoint.
 ) -> Result<AppReply<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>>>
 where
-    S: db::Storage,
+    S: db::Storage + Sync,
 {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
     }
 
-    let db_info = storage.info()?;
+    let db_info = storage.info().await?;
 
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(db_info)),
@@ -175,7 +175,7 @@ pub fn create_submission_endpoint<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> impl warp::Filter<Extract = (AppReply<()>,), Error = warp::Rejection> + Clone
 where
-    S: db::Storage,
+    S: db::Storage + Sync,
 {
     warp::path("submit")
         .and(warp::post())
@@ -198,7 +198,7 @@ pub fn create_query_endpoint<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> impl warp::Filter<Extract = (AppReply<Vec<QueryResponse>>,), Error = warp::Rejection> + Clone
 where
-    S: db::Storage,
+    S: db::Storage + Sync,
 {
     warp::path("query")
         .and(warp::get())
@@ -218,7 +218,7 @@ pub fn create_detail_endpoint<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> impl warp::Filter<Extract = (AppReply<LogTreeDetail>,), Error = warp::Rejection> + Clone
 where
-    S: db::Storage,
+    S: db::Storage + Sync,
 {
     warp::path("detail")
         .and(warp::get())
@@ -243,7 +243,7 @@ pub fn create_info_endpoint<S>(
     Error = warp::Rejection,
 > + Clone
 where
-    S: db::Storage,
+    S: db::Storage + Sync,
 {
     warp::path("info")
         .and(warp::get())

@@ -66,7 +66,7 @@ impl<'a> From<&log::Record<'a>> for LogData {
     }
 }
 
-type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
+pub type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
 
 #[derive(Clone, Debug, Copy)]
 pub enum SerializationFormat {
@@ -164,13 +164,13 @@ where
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct TreeName {
-    host: Host,
-    app: App,
-    level: Level,
+    pub host: Host,
+    pub app: App,
+    pub level: Level,
 }
 
 impl TreeName {
-    fn from_bytes(bytes: &[u8]) -> Result<TreeName> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<TreeName> {
         let indicies = bytes
             .iter()
             .enumerate()
@@ -408,13 +408,13 @@ pub enum Level {
 }
 
 impl Level {
-    fn get_tree_name(&self, hostname: &Host, application: &App) -> String {
+    pub fn get_tree_name(&self, hostname: &Host, application: &App) -> String {
         format!("{}-{}-{}", hostname.name, application.name, self)
     }
-    fn get_levels(max_level: Level) -> collections::BTreeSet<Level> {
+    pub fn get_levels(max_level: Level) -> collections::BTreeSet<Level> {
         Level::all().filter(|l| *l <= max_level).collect()
     }
-    fn all() -> impl Iterator<Item = Level> {
+    pub fn all() -> impl Iterator<Item = Level> {
         IntoIterator::into_iter([
             Level::Trace,
             Level::Debug,
@@ -540,7 +540,7 @@ pub enum Error {
 
 #[derive(thiserror::Error, Debug, serde::Deserialize, serde::Serialize)]
 #[error("Parse log tree info: {0}")]
-pub struct ParseLogTreeInfoError(String);
+pub struct ParseLogTreeInfoError(pub String);
 
 #[cfg(test)]
 mod tests {

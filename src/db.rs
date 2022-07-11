@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+
 use super::*;
 
 #[cfg(feature = "sled")]
@@ -9,26 +11,27 @@ mod nebari_impl;
 #[cfg(feature = "rusqlite")]
 mod rusqlite_impl;
 
+#[async_trait]
 pub trait Storage: Clone + Send {
-    fn submit(&self, host: &Host, app: &App, level: Level, log_batch: LogBatch) -> Result<()>;
+    async fn submit(&self, host: Host, app: App, level: Level, log_batch: LogBatch) -> Result<()>;
 
-    fn query(&self, params: QueryParams) -> Result<Vec<QueryResponse>>;
+    async fn query(&self, params: QueryParams) -> Result<Vec<QueryResponse>>;
 
-    fn detail(&self, host: &Host, app: &App, level: Level) -> Result<LogTreeDetail>;
+    async fn detail(&self, host: Host, app: App, level: Level) -> Result<LogTreeDetail>;
 
-    fn info(&self) -> Result<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>>;
+    async fn info(&self) -> Result<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>>;
 
-    fn flush(&self, host: &Host, app: &App) -> Result<()>;
+    async fn flush(&self, host: Host, app: App) -> Result<()>;
 }
 
-fn filter_with_option<T: AsRef<str>>(input: &T, filter: &Option<T>) -> bool {
+pub fn filter_with_option<T: AsRef<str>>(input: &T, filter: &Option<T>) -> bool {
     filter
         .as_ref()
         .map(|f| input.as_ref().contains(f.as_ref()))
         .unwrap_or(true)
 }
 
-fn ulid_floor(input: ulid::Ulid) -> u128 {
+pub fn ulid_floor(input: ulid::Ulid) -> u128 {
     let mut base = u128::from(input).to_be_bytes();
 
     for i in base.iter_mut().skip(6) {
@@ -38,7 +41,7 @@ fn ulid_floor(input: ulid::Ulid) -> u128 {
     u128::from_be_bytes(base)
 }
 
-fn ulid_ceiling(input: ulid::Ulid) -> u128 {
+pub fn ulid_ceiling(input: ulid::Ulid) -> u128 {
     let mut base = u128::from(input).to_be_bytes();
 
     for i in base.iter_mut().skip(6) {
@@ -48,7 +51,7 @@ fn ulid_ceiling(input: ulid::Ulid) -> u128 {
     u128::from_be_bytes(base)
 }
 
-fn slice_be_to_u128(slice: &[u8]) -> crate::Result<u128> {
+pub fn slice_be_to_u128(slice: &[u8]) -> crate::Result<u128> {
     let mut bytes = [0; 16];
 
     if slice.len() != 16 {
