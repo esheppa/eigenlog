@@ -21,7 +21,7 @@ pub mod server;
 pub mod subscriber;
 
 #[cfg(any(feature = "server", feature = "local-subscriber"))]
-pub mod db;
+pub mod storage;
 
 const fn check_bincode_or_json() {
     #[cfg(not(any(feature = "bincode", feature = "json")))]

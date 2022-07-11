@@ -1,6 +1,6 @@
 // This demonstrates the use of a rust client for the log server
 
-use eigenlog::{self, db::Storage, ParseLogTreeInfoError};
+use eigenlog::{self, storage::Storage, ParseLogTreeInfoError};
 use std::{
     io::{self, Write},
     path, result, str,

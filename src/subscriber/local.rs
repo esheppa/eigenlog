@@ -10,7 +10,7 @@ impl Subscriber {
         storage: S,
     ) -> (Subscriber, DataSaver<S>)
     where
-        S: db::Storage,
+        S: storage::Storage,
     {
         let (tx1, rx1) = mpsc::unbounded();
         let (tx2, rx2) = mpsc::unbounded();
@@ -35,7 +35,7 @@ impl Subscriber {
 
 pub struct DataSaver<S>
 where
-    S: db::Storage,
+    S: storage::Storage,
 {
     receiver: mpsc::UnboundedReceiver<(log::Level, LogData)>,
 
@@ -50,7 +50,7 @@ where
 
 impl<S> DataSaver<S>
 where
-    S: db::Storage,
+    S: storage::Storage,
 {
     pub async fn run_forever<OnError>(mut self, mut func: OnError)
     where
