@@ -78,10 +78,10 @@ where
                     let mut generator = ulid::Generator::new();
                     let mut batch = collections::BTreeMap::new();
                     batch.insert(generator.generate()?, data);
-                    storage.submit(host, app, level.into(), batch)?;
+                    storage.submit(host.clone(), app.clone(), level.into(), batch).await?;
                 }
                 future::Either::Right((Some(sender), _)) => {
-                    storage.flush(host, app)?;
+                    storage.flush(host.clone(), app.clone()).await?;
                     sender.send(())?;
                 }
                 future::Either::Left((None, _)) | future::Either::Right((None, _)) => {

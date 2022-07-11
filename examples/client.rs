@@ -80,11 +80,11 @@ impl DataSource {
                 let db_handle = sled::open(db_file)?;
                 match cmd {
                     Cmd::Info => {
-                        let info = db_handle.info()?;
+                        let info = db_handle.info().await?;
                         Ok(info.into())
                     }
                     Cmd::Detail { host, app, level } => {
-                        let detail = db_handle.detail(&host, &app, level)?;
+                        let detail = db_handle.detail(host, app, level).await?;
                         Ok(detail.into())
                     }
                     Cmd::Query {
@@ -106,7 +106,7 @@ impl DataSource {
                             message_matches,
                             message_not_matches,
                             max_results,
-                        })?;
+                        }).await?;
 
                         Ok(query.into())
                     }
