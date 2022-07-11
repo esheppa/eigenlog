@@ -44,7 +44,7 @@ impl Subscriber {
 #[must_use]
 pub struct DataSender<T>
 where
-    T: ConnectionProxy + Sync + Send + 'static,
+    T: ConnectionProxy + 'static,
 {
     receiver: mpsc::UnboundedReceiver<(log::Level, LogData)>,
 
@@ -67,7 +67,7 @@ where
 
 impl<T> Drop for DataSender<T>
 where
-    T: ConnectionProxy + Sync + Send + 'static,
+    T: ConnectionProxy + 'static,
 {
     fn drop(&mut self) {
         eprintln!("Dropping DataSender");
@@ -83,7 +83,7 @@ where
 
 impl<T> DataSender<T>
 where
-    T: ConnectionProxy + Sync + Send + 'static,
+    T: ConnectionProxy + 'static,
 {
     pub async fn run(mut self) {
         // get message and try to send
