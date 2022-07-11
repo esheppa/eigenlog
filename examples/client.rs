@@ -84,7 +84,7 @@ impl DataSource {
                         Ok(info.into())
                     }
                     Cmd::Detail { host, app, level } => {
-                        let detail = db_handle.detail(host, app, level).await?;
+                        let detail = db_handle.detail(&host, &app, level).await?;
                         Ok(detail.into())
                     }
                     Cmd::Query {
@@ -97,16 +97,18 @@ impl DataSource {
                         message_not_matches,
                         max_results,
                     } => {
-                        let query = db_handle.query(eigenlog::QueryParams {
-                            max_log_level,
-                            start_timestamp,
-                            end_timestamp,
-                            host_contains,
-                            app_contains,
-                            message_matches,
-                            message_not_matches,
-                            max_results,
-                        }).await?;
+                        let query = db_handle
+                            .query(eigenlog::QueryParams {
+                                max_log_level,
+                                start_timestamp,
+                                end_timestamp,
+                                host_contains,
+                                app_contains,
+                                message_matches,
+                                message_not_matches,
+                                max_results,
+                            })
+                            .await?;
 
                         Ok(query.into())
                     }

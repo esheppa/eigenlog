@@ -4,9 +4,15 @@ use bincode_crate as bincode;
 
 #[async_trait]
 impl Storage for sled::Db {
-    async fn submit(&self, host: Host, app: App, level: Level, log_batch: LogBatch) -> Result<()> {
+    async fn submit(
+        &self,
+        host: &Host,
+        app: &App,
+        level: Level,
+        log_batch: LogBatch,
+    ) -> Result<()> {
         // this will create the tree if it doesn't already exist
-        let tree = self.open_tree(level.get_tree_name(&host, &app))?;
+        let tree = self.open_tree(level.get_tree_name(host, app))?;
 
         // insert all items from the batch into the tree.
         // while we could use `apply_batch` here, we don't have any need
@@ -102,8 +108,8 @@ impl Storage for sled::Db {
         Ok(response)
     }
 
-    async fn detail(&self, host: Host, app: App, level: Level) -> Result<LogTreeDetail> {
-        let tree = self.open_tree(level.get_tree_name(&host, &app))?;
+    async fn detail(&self, host: &Host, app: &App, level: Level) -> Result<LogTreeDetail> {
+        let tree = self.open_tree(level.get_tree_name(host, app))?;
 
         let mut row_detail = collections::BTreeMap::new();
 
@@ -117,8 +123,8 @@ impl Storage for sled::Db {
         }
 
         Ok(LogTreeDetail {
-            app,
-            host,
+            app: app.clone(),
+            host: host.clone(),
             level,
             rows: row_detail.values().sum(),
             row_detail,
@@ -157,9 +163,9 @@ impl Storage for sled::Db {
         Ok(db_info)
     }
 
-    async fn flush(&self, host: Host, app: App) -> Result<()> {
+    async fn flush(&self, host: &Host, app: &App) -> Result<()> {
         for level in Level::all() {
-            let tree = self.open_tree(level.get_tree_name(&host, &app))?;
+            let tree = self.open_tree(level.get_tree_name(host, app))?;
             tree.flush()?;
         }
         Ok(())

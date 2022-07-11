@@ -67,7 +67,7 @@ async fn submit<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> Result<AppReply<()>>
 where
-    S: db::Storage + Sync,
+    S: db::Storage,
 {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
@@ -80,7 +80,7 @@ where
         SerializationFormat::Json => serde_json::from_slice(&bytes)?,
     };
 
-    storage.submit(host, app, level, batch).await?;
+    storage.submit(&host, &app, level, batch).await?;
 
     Ok(AppReply::Empty)
 }
@@ -96,7 +96,7 @@ async fn query<S>(
     // for Bincode or RON there could be another endpoint.
 ) -> Result<AppReply<Vec<QueryResponse>>>
 where
-    S: db::Storage + Sync,
+    S: db::Storage,
 {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
@@ -125,14 +125,14 @@ async fn detail<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> Result<AppReply<LogTreeDetail>>
 where
-    S: db::Storage + Sync,
+    S: db::Storage,
 {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
         return Err(Error::InvalidApiKey(api_key));
     }
 
-    let response = storage.detail(host, app, level).await?;
+    let response = storage.detail(&host, &app, level).await?;
 
     match accept {
         SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
@@ -151,7 +151,7 @@ async fn info<S>(
     // for Bincode or RON there could be another endpoint.
 ) -> Result<AppReply<Vec<result::Result<LogTreeInfo, ParseLogTreeInfoError>>>>
 where
-    S: db::Storage + Sync,
+    S: db::Storage,
 {
     // ensure the request's API key is allowed
     if !api_keys.contains(&api_key) {
@@ -175,7 +175,7 @@ pub fn create_submission_endpoint<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> impl warp::Filter<Extract = (AppReply<()>,), Error = warp::Rejection> + Clone
 where
-    S: db::Storage + Sync,
+    S: db::Storage,
 {
     warp::path("submit")
         .and(warp::post())
@@ -198,7 +198,7 @@ pub fn create_query_endpoint<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> impl warp::Filter<Extract = (AppReply<Vec<QueryResponse>>,), Error = warp::Rejection> + Clone
 where
-    S: db::Storage + Sync,
+    S: db::Storage,
 {
     warp::path("query")
         .and(warp::get())
@@ -218,7 +218,7 @@ pub fn create_detail_endpoint<S>(
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> impl warp::Filter<Extract = (AppReply<LogTreeDetail>,), Error = warp::Rejection> + Clone
 where
-    S: db::Storage + Sync,
+    S: db::Storage,
 {
     warp::path("detail")
         .and(warp::get())
@@ -243,7 +243,7 @@ pub fn create_info_endpoint<S>(
     Error = warp::Rejection,
 > + Clone
 where
-    S: db::Storage + Sync,
+    S: db::Storage,
 {
     warp::path("info")
         .and(warp::get())
