@@ -1,6 +1,6 @@
 // This demonstrates the use of a rust client for the log server
 
-use eigenlog::{self, db, ParseLogTreeInfoError};
+use eigenlog::{self, storage::Storage, ParseLogTreeInfoError};
 use std::{
     io::{self, Write},
     path, result, str,
@@ -80,11 +80,11 @@ impl DataSource {
                 let db_handle = sled::open(db_file)?;
                 match cmd {
                     Cmd::Info => {
-                        let info = db::info(&db_handle)?;
+                        let info = db_handle.info().await?;
                         Ok(info.into())
                     }
                     Cmd::Detail { host, app, level } => {
-                        let detail = db::detail(&host, &app, level, &db_handle)?;
+                        let detail = db_handle.detail(&host, &app, level).await?;
                         Ok(detail.into())
                     }
                     Cmd::Query {
@@ -97,8 +97,8 @@ impl DataSource {
                         message_not_matches,
                         max_results,
                     } => {
-                        let query = db::query(
-                            eigenlog::QueryParams {
+                        let query = db_handle
+                            .query(eigenlog::QueryParams {
                                 max_log_level,
                                 start_timestamp,
                                 end_timestamp,
@@ -107,9 +107,8 @@ impl DataSource {
                                 message_matches,
                                 message_not_matches,
                                 max_results,
-                            },
-                            &db_handle,
-                        )?;
+                            })
+                            .await?;
 
                         Ok(query.into())
                     }
