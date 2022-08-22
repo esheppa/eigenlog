@@ -1,5 +1,6 @@
 use super::*;
 use futures_channel::mpsc;
+use std::time;
 
 #[cfg(feature = "local-subscriber")]
 pub mod local;
@@ -52,8 +53,18 @@ impl CacheLimit {
         &self,
         level: log::Level,
         batch: &collections::BTreeMap<ulid::Ulid, LogData>,
+        now: time::SystemTime,
+        timeout: time::Duration,
     ) -> bool {
-        batch.len() >= self.get_limit(level)
+        if let Some(oldest_key) = batch.keys().next() {
+            if let Ok(dur) = now.duration_since(oldest_key.datetime()) {
+                dur > timeout || batch.len() >= self.get_limit(level)
+            } else {
+                batch.len() >= self.get_limit(level)
+            }
+        } else {
+            false
+        }
     }
 }
 
@@ -140,39 +151,189 @@ mod tests {
 
         let limit = CacheLimit::default();
 
-        assert!(limit.should_send(log::Level::Error, &batch_1));
-        assert!(limit.should_send(log::Level::Error, &batch_5));
-        assert!(limit.should_send(log::Level::Error, &batch_9));
-        assert!(limit.should_send(log::Level::Error, &batch_10));
-        assert!(limit.should_send(log::Level::Error, &batch_99));
-        assert!(limit.should_send(log::Level::Error, &batch_100));
+        assert!(limit.should_send(
+            log::Level::Error,
+            &batch_1,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Error,
+            &batch_5,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Error,
+            &batch_9,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Error,
+            &batch_10,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Error,
+            &batch_99,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Error,
+            &batch_100,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
 
-        assert!(limit.should_send(log::Level::Warn, &batch_1));
-        assert!(limit.should_send(log::Level::Warn, &batch_5));
-        assert!(limit.should_send(log::Level::Warn, &batch_9));
-        assert!(limit.should_send(log::Level::Warn, &batch_10));
-        assert!(limit.should_send(log::Level::Warn, &batch_99));
-        assert!(limit.should_send(log::Level::Warn, &batch_100));
+        assert!(limit.should_send(
+            log::Level::Warn,
+            &batch_1,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Warn,
+            &batch_5,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Warn,
+            &batch_9,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Warn,
+            &batch_10,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Warn,
+            &batch_99,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Warn,
+            &batch_100,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
 
-        assert!(!limit.should_send(log::Level::Info, &batch_1));
-        assert!(!limit.should_send(log::Level::Info, &batch_5));
-        assert!(!limit.should_send(log::Level::Info, &batch_9));
-        assert!(limit.should_send(log::Level::Info, &batch_10));
-        assert!(limit.should_send(log::Level::Info, &batch_99));
-        assert!(limit.should_send(log::Level::Info, &batch_100));
+        assert!(!limit.should_send(
+            log::Level::Info,
+            &batch_1,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Info,
+            &batch_5,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Info,
+            &batch_9,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Info,
+            &batch_10,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Info,
+            &batch_99,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Info,
+            &batch_100,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
 
-        assert!(!limit.should_send(log::Level::Debug, &batch_1));
-        assert!(!limit.should_send(log::Level::Debug, &batch_5));
-        assert!(!limit.should_send(log::Level::Debug, &batch_9));
-        assert!(!limit.should_send(log::Level::Debug, &batch_10));
-        assert!(!limit.should_send(log::Level::Debug, &batch_99));
-        assert!(limit.should_send(log::Level::Debug, &batch_100));
+        assert!(!limit.should_send(
+            log::Level::Debug,
+            &batch_1,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Debug,
+            &batch_5,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Debug,
+            &batch_9,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Debug,
+            &batch_10,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Debug,
+            &batch_99,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Debug,
+            &batch_100,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
 
-        assert!(!limit.should_send(log::Level::Trace, &batch_1));
-        assert!(!limit.should_send(log::Level::Trace, &batch_5));
-        assert!(!limit.should_send(log::Level::Trace, &batch_9));
-        assert!(!limit.should_send(log::Level::Trace, &batch_10));
-        assert!(!limit.should_send(log::Level::Trace, &batch_99));
-        assert!(limit.should_send(log::Level::Trace, &batch_100));
+        assert!(!limit.should_send(
+            log::Level::Trace,
+            &batch_1,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Trace,
+            &batch_5,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Trace,
+            &batch_9,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Trace,
+            &batch_10,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(!limit.should_send(
+            log::Level::Trace,
+            &batch_99,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
+        assert!(limit.should_send(
+            log::Level::Trace,
+            &batch_100,
+            time::SystemTime::now(),
+            time::Duration::from_secs(30)
+        ));
     }
 }

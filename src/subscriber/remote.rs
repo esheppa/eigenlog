@@ -12,6 +12,7 @@ impl Subscriber {
         app: App,
         level: log::LevelFilter,
         cache_limit: CacheLimit,
+        cache_timeout: time::Duration,
     ) -> (Subscriber, DataSender<T>)
     where
         T: ConnectionProxy,
@@ -33,6 +34,7 @@ impl Subscriber {
                 host,
                 app,
                 cache_limit,
+                cache_timeout,
                 cache: Default::default(),
                 sender: None,
                 generator: ulid::Generator::new(),
@@ -58,6 +60,8 @@ where
 
     cache_limit: CacheLimit,
 
+    cache_timeout: time::Duration,
+
     cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
 
     sender: Option<pin::Pin<Box<dyn futures_util::Future<Output = Result<()>>>>>,
@@ -75,7 +79,12 @@ where
 
         for (level, logs) in cache {
             for (id, data) in logs {
-                eprintln!("[{} {}]: {}", id.datetime(), level, data.message)
+                eprintln!(
+                    "[{} {}]: {}",
+                    chrono::DateTime::<chrono::Utc>::from(id.datetime()),
+                    level,
+                    data.message
+                )
             }
         }
     }
@@ -153,7 +162,11 @@ where
 
         let mut detached_cache = std::mem::take(&mut self.cache);
         for (level, batch) in detached_cache.iter_mut() {
-            if self.cache_limit.should_send(*level, batch) {
+            let now = time::SystemTime::now();
+            if self
+                .cache_limit
+                .should_send(*level, batch, now, self.cache_timeout)
+            {
                 let batch = std::mem::take(batch);
                 let req = prepare_without_batch(&self.api_config, &self.host, &self.app, *level);
                 let local_proxy = self.api_config.proxy.clone();

@@ -346,7 +346,7 @@ fn data_to_table(data: Vec<eigenlog::QueryResponse>) -> comfy_table::Table {
             row.app.to_string(),
             row.level.to_string(),
             row.id.to_string(),
-            row.id.datetime().to_string(),
+            chrono::DateTime::<chrono::Utc>::from(row.id.datetime()).to_string(),
             row.data.message.to_string(),
         ]);
     }
