@@ -7,6 +7,8 @@ impl Subscriber {
         host: Host,
         app: App,
         level: log::LevelFilter,
+        cache_limit: CacheLimit,
+        cache_timeout: time::Duration,
         storage: S,
     ) -> (Subscriber, DataSaver<S>)
     where
@@ -27,6 +29,9 @@ impl Subscriber {
                 flush_request: rx2,
                 host,
                 app,
+                cache_limit,
+                cache_timeout,
+                cache: Default::default(),
                 storage,
             },
         )
@@ -44,6 +49,12 @@ where
     host: Host,
 
     app: App,
+
+    cache_limit: CacheLimit,
+
+    cache_timeout: time::Duration,
+
+    cache: collections::HashMap<log::Level, collections::BTreeMap<uuid::Uuid, LogData>>,
 
     storage: S,
 }
@@ -64,23 +75,32 @@ where
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        let DataSaver {
-            receiver,
-            flush_request,
-            ref storage,
-            ref host,
-            app,
-        } = self;
-
         loop {
-            match future::select(receiver.next(), flush_request.next()).await {
+            match future::select(self.receiver.next(), self.flush_request.next()).await {
                 future::Either::Left((Some((level, data)), _)) => {
-                    let mut batch = collections::BTreeMap::new();
+                    let mut batch = self.cache.remove(&level).unwrap_or_default();
+
                     batch.insert(uuid::Uuid::now_v7(), data);
-                    storage.submit(host, app, level.into(), batch).await?;
+
+                    self.cache.insert(level, batch);
+
+                    let mut detached_cache = std::mem::take(&mut self.cache);
+                    for (level, batch) in detached_cache.iter_mut() {
+                        let now = time::SystemTime::now();
+                        if self
+                            .cache_limit
+                            .should_send(*level, batch, now, self.cache_timeout)
+                        {
+                            let batch = std::mem::take(batch);
+                            self.storage
+                                .submit(&self.host, &self.app, (*level).into(), batch)
+                                .await?;
+                        }
+                    }
+                    self.cache = detached_cache;
                 }
                 future::Either::Right((Some(sender), _)) => {
-                    storage.flush(host, app).await?;
+                    self.storage.flush(&self.host, &self.app).await?;
                     sender.send(())?;
                 }
                 future::Either::Left((None, _)) | future::Either::Right((None, _)) => {

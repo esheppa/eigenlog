@@ -9,9 +9,11 @@
 //! we can ensure that we always insert ascending values of the index. It also ensures that we can send through different log levels
 //! at different frequencies (eg per message for Errors, per n messages for Info).
 
+use chrono::{DateTime, Utc};
 use http::header;
 use once_cell::sync as once_cell;
 use std::{collections, error, fmt, iter, result, str, sync};
+use uuid::Uuid;
 
 #[cfg(feature = "client")]
 pub mod client;
@@ -180,6 +182,7 @@ impl TreeName {
 }
 
 // this is because the display impl is inefficient
+#[allow(clippy::to_string_trait_impl)]
 impl ToString for TreeName {
     fn to_string(&self) -> String {
         self.level.get_tree_name(&self.host, &self.app)
@@ -446,6 +449,13 @@ impl fmt::Display for Level {
             Level::Error => write!(f, "error"),
         }
     }
+}
+
+fn uuid_to_datetime(uuid: Uuid) -> DateTime<Utc> {
+    uuid.get_timestamp()
+        .and_then(|ts| ts.to_unix().0.try_into().ok())
+        .and_then(|seconds| DateTime::<Utc>::from_timestamp(seconds, 0))
+        .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap())
 }
 
 pub type Result<T> = result::Result<T, Error>;
