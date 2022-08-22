@@ -3,6 +3,7 @@
 
 use eigenlog::subscriber;
 use futures_util::future;
+use std::time;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -33,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
             error: 1,
             warn: 1,
         },
+        time::Duration::from_secs(30),
     );
 
     subscriber.set_logger()?;
