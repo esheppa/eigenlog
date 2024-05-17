@@ -17,16 +17,10 @@ use std::{collections, error, fmt, iter, result, str, sync};
 pub mod client;
 #[cfg(feature = "server")]
 pub mod server;
+pub mod storage;
 #[cfg(any(feature = "remote-subscriber", feature = "local-subscriber"))]
 pub mod subscriber;
 
-#[cfg(any(feature = "server", feature = "local-subscriber"))]
-pub mod storage;
-
-const fn check_bincode_or_json() {
-    #[cfg(not(any(feature = "bincode", feature = "json")))]
-    compile_error!("eigenlog: must select at least one of `json` or `bincode`");
-}
 const fn check_client_or_server_or_subscriber() {
     #[cfg(not(any(
         feature = "client",
@@ -66,52 +60,44 @@ impl<'a> From<&log::Record<'a>> for LogData {
     }
 }
 
-pub type LogBatch = collections::BTreeMap<ulid::Ulid, LogData>;
+pub type LogBatch = collections::BTreeMap<uuid::Uuid, LogData>;
 
-#[derive(Clone, Debug, Copy)]
-pub enum SerializationFormat {
-    #[cfg(feature = "bincode")]
-    Bincode,
-    #[cfg(feature = "json")]
-    Json,
-}
+// impl str::FromStr for SerializationFormat {
+//     type Err = Error;
+//     fn from_str(s: &str) -> Result<Self> {
+//         match s {
+//             #[cfg(feature = "json")]
+//             APPLICATION_JSON => Ok(SerializationFormat::Json),
+//             #[cfg(feautre = "bincode")]
+//             OCTET_STREAM => Ok(SerializationFormat::Bincode),
+//             otherwise => Err(Error::UnsupportedSerializationMimeType(
+//                 otherwise.to_string(),
+//             )),
+//         }
+//     }
+// }
 
-impl str::FromStr for SerializationFormat {
-    type Err = Error;
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
-            #[cfg(feature = "json")]
-            APPLICATION_JSON => Ok(SerializationFormat::Json),
-            #[cfg(feautre = "bincode")]
-            OCTET_STREAM => Ok(SerializationFormat::Bincode),
-            otherwise => Err(Error::UnsupportedSerializationMimeType(
-                otherwise.to_string(),
-            )),
-        }
-    }
-}
-
-impl SerializationFormat {
-    fn header_value(&self) -> header::HeaderValue {
-        match self {
-            #[cfg(feature = "bincode")]
-            SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
-            #[cfg(feature = "json")]
-            SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
-        }
-    }
-    fn serialize<T>(&self, t: T) -> Result<Vec<u8>>
-    where
-        T: serde::Serialize,
-    {
-        match self {
-            #[cfg(feature = "bincode")]
-            SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
-            #[cfg(feature = "json")]
-            SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
-        }
-    }
-}
+// impl SerializationFormat {
+//     fn header_value(&self) -> header::HeaderValue {
+//         match self {
+//             #[cfg(feature = "bincode")]
+//             SerializationFormat::Bincode => header::HeaderValue::from_static(OCTET_STREAM),
+//             #[cfg(feature = "json")]
+//             SerializationFormat::Json => header::HeaderValue::from_static(APPLICATION_JSON),
+//         }
+//     }
+//     fn serialize<T>(&self, t: T) -> Result<Vec<u8>>
+//     where
+//         T: serde::Serialize,
+//     {
+//         match self {
+//             #[cfg(feature = "bincode")]
+//             SerializationFormat::Bincode => Ok(bincode_crate::serialize(&t)?),
+//             #[cfg(feature = "json")]
+//             SerializationFormat::Json => Ok(serde_json::to_vec(&t)?),
+//         }
+//     }
+// }
 
 #[cfg(any(feature = "client", feature = "remote-subscriber"))]
 /// This allows the user of the library to interject in each request that is made to
@@ -159,7 +145,6 @@ where
     pub client: reqwest::Client,
     pub base_url: reqwest::Url,
     pub proxy: sync::Arc<T>,
-    pub serialization_format: SerializationFormat,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
@@ -251,7 +236,7 @@ pub struct QueryResponse {
     pub host: Host,
     pub app: App,
     pub level: Level,
-    pub id: ulid::Ulid,
+    pub id: uuid::Uuid,
     pub data: LogData,
 }
 
@@ -492,11 +477,11 @@ pub enum Error {
     #[error("Submission of content type `{0}` is not valid")]
     InvalidSubmissionContentType(String),
 
-    #[error("Bytes of length {0} cannot be converted to a Ulid (16 required")]
+    #[error("Bytes of length {0} cannot be converted to a Uuid (16 required")]
     InvalidLengthBytesForUlid(usize),
 
     #[error("Missing entity with id: {0}")]
-    MissingEntity(ulid::Ulid),
+    MissingEntity(uuid::Uuid),
 
     #[error("Error parsing tree name from bytes: {}", String::from_utf8_lossy(.0))]
     ParseTreeNameFromBytes(Vec<u8>),
@@ -508,9 +493,6 @@ pub enum Error {
     #[cfg(feature = "sled")]
     #[error("Sled: {0}")]
     Sled(#[from] sled::Error),
-
-    #[error("Ulid: {0}")]
-    Ulid(#[from] ulid::MonotonicError),
 
     #[error("Uuid: {0}")]
     Uuid(#[from] uuid::Error),

@@ -1,4 +1,5 @@
 use super::*;
+use chrono::{DateTime, Utc};
 use futures_channel::mpsc;
 use futures_util::{future, StreamExt, TryFutureExt};
 use reqwest::header;
@@ -35,7 +36,6 @@ impl Subscriber {
                 cache_limit,
                 cache: Default::default(),
                 sender: None,
-                generator: ulid::Generator::new(),
             },
         )
     }
@@ -58,11 +58,9 @@ where
 
     cache_limit: CacheLimit,
 
-    cache: collections::HashMap<log::Level, collections::BTreeMap<ulid::Ulid, LogData>>,
+    cache: collections::HashMap<log::Level, collections::BTreeMap<uuid::Uuid, LogData>>,
 
     sender: Option<pin::Pin<Box<dyn futures_util::Future<Output = Result<()>>>>>,
-
-    generator: ulid::Generator,
 }
 
 impl<T> Drop for DataSender<T>
@@ -75,7 +73,14 @@ where
 
         for (level, logs) in cache {
             for (id, data) in logs {
-                eprintln!("[{} {}]: {}", id.datetime(), level, data.message)
+                if let Some(ts) = id.get_timestamp() {
+                    eprintln!(
+                        "[{:?} {}]: {}",
+                        DateTime::<Utc>::from_timestamp(ts.to_unix().0.try_into().unwrap(), 0),
+                        level,
+                        data.message
+                    )
+                }
             }
         }
     }
@@ -100,7 +105,7 @@ where
         if let Some((level, data)) = msg {
             let mut batch = self.cache.remove(&level).unwrap_or_default();
 
-            batch.insert(self.generator.generate().unwrap(), data);
+            batch.insert(uuid::Uuid::now_v7(), data);
 
             self.cache.insert(level, batch);
             None
@@ -122,7 +127,7 @@ where
                     if let Some((level, data)) = msg {
                         let mut batch = self.cache.remove(&level).unwrap_or_default();
 
-                        batch.insert(self.generator.generate().unwrap(), data);
+                        batch.insert(uuid::Uuid::now_v7(), data);
 
                         self.cache.insert(level, batch);
                         // once we have added to the cache we want to exit the fn
@@ -142,7 +147,7 @@ where
                 if let Some((level, data)) = self.receiver.next().await {
                     let mut batch = self.cache.remove(&level).unwrap_or_default();
 
-                    batch.insert(self.generator.generate().unwrap(), data);
+                    batch.insert(uuid::Uuid::now_v7(), data);
 
                     self.cache.insert(level, batch);
                 } else {
@@ -157,13 +162,9 @@ where
                 let batch = std::mem::take(batch);
                 let req = prepare_without_batch(&self.api_config, &self.host, &self.app, *level);
                 let local_proxy = self.api_config.proxy.clone();
-                let local_format = self.api_config.serialization_format;
                 self.sender = Some(Box::pin(local_proxy.proxy(req).and_then(
                     move |r| async move {
-                        r.body(local_format.serialize(&batch)?)
-                            .send()
-                            .await?
-                            .error_for_status()?;
+                        r.json(&batch).send().await?.error_for_status()?;
                         Ok(())
                     },
                 )));
@@ -194,8 +195,5 @@ where
         level = level.to_string().to_lowercase()
     );
 
-    config.client.post(url).header(
-        header::CONTENT_TYPE,
-        config.serialization_format.header_value(),
-    )
+    config.client.post(url)
 }

@@ -75,9 +75,8 @@ where
         loop {
             match future::select(receiver.next(), flush_request.next()).await {
                 future::Either::Left((Some((level, data)), _)) => {
-                    let mut generator = ulid::Generator::new();
                     let mut batch = collections::BTreeMap::new();
-                    batch.insert(generator.generate()?, data);
+                    batch.insert(uuid::Uuid::now_v7(), data);
                     storage.submit(host, app, level.into(), batch).await?;
                 }
                 future::Either::Right((Some(sender), _)) => {

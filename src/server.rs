@@ -7,8 +7,6 @@ use warp::{
     Filter,
 };
 
-use bincode_crate as bincode;
-
 fn add<C: Clone + Send>(
     c: C,
 ) -> impl warp::Filter<Extract = (C,), Error = convert::Infallible> + Clone {
@@ -16,9 +14,7 @@ fn add<C: Clone + Send>(
 }
 
 pub enum AppReply<T: serde::Serialize> {
-    #[cfg(feature = "json")]
     Json(T),
-    Bincode(T),
     Empty,
     Error(String),
 }
@@ -26,11 +22,7 @@ pub enum AppReply<T: serde::Serialize> {
 impl<T: serde::Serialize + Send> warp::Reply for AppReply<T> {
     fn into_response(self) -> warp::reply::Response {
         match self {
-            #[cfg(feature = "json")]
             AppReply::Json(j) => warp::reply::json(&j).into_response(),
-            AppReply::Bincode(i) => http::Response::new(hyper::Body::from(
-                bincode::serialize(&i).expect("Bincode Serialize should succeed"),
-            )),
             AppReply::Empty => http::Response::default(),
             AppReply::Error(e) => e.into_response(),
         }
@@ -61,8 +53,7 @@ async fn submit<S>(
     app: App,
     level: Level,
     api_key: String,
-    content_type: SerializationFormat,
-    bytes: body::Bytes,
+    batch: LogBatch,
     storage: S,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> Result<AppReply<()>>
@@ -74,12 +65,6 @@ where
         return Err(Error::InvalidApiKey(api_key));
     }
 
-    let batch: LogBatch = match content_type {
-        SerializationFormat::Bincode => bincode::deserialize(&bytes)?,
-        #[cfg(feature = "json")]
-        SerializationFormat::Json => serde_json::from_slice(&bytes)?,
-    };
-
     storage.submit(&host, &app, level, batch).await?;
 
     Ok(AppReply::Empty)
@@ -87,7 +72,6 @@ where
 
 async fn query<S>(
     api_key: String,
-    accept: SerializationFormat,
     params: QueryParams,
     storage: S,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
@@ -108,11 +92,7 @@ where
     // in the short term we will leave it like this
     let response = storage.query(params).await?;
 
-    match accept {
-        SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
-        #[cfg(feature = "json")]
-        SerializationFormat::Json => Ok(AppReply::Json(response)),
-    }
+    Ok(AppReply::Json(response))
 }
 
 async fn detail<S>(
@@ -120,7 +100,6 @@ async fn detail<S>(
     app: App,
     level: Level,
     api_key: String,
-    accept: SerializationFormat,
     storage: S,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
 ) -> Result<AppReply<LogTreeDetail>>
@@ -134,16 +113,11 @@ where
 
     let response = storage.detail(&host, &app, level).await?;
 
-    match accept {
-        SerializationFormat::Bincode => Ok(AppReply::Bincode(response)),
-        #[cfg(feature = "json")]
-        SerializationFormat::Json => Ok(AppReply::Json(response)),
-    }
+    Ok(AppReply::Json(response))
 }
 
 async fn info<S>(
     api_key: String,
-    accept: SerializationFormat,
     storage: S,
     api_keys: sync::Arc<collections::BTreeSet<String>>,
     // vec LogTreeInfo isn't that nice, but
@@ -160,11 +134,7 @@ where
 
     let db_info = storage.info().await?;
 
-    match accept {
-        SerializationFormat::Bincode => Ok(AppReply::Bincode(db_info)),
-        #[cfg(feature = "json")]
-        SerializationFormat::Json => Ok(AppReply::Json(db_info)),
-    }
+    Ok(AppReply::Json(db_info))
 }
 
 // These endpoints are kept seperate as sometimes only one may be needed
@@ -184,12 +154,11 @@ where
         .and(warp::path::param()) // Level
         .and(warp::path::end())
         .and(warp::header(API_KEY_HEADER))
-        .and(warp::header(header::CONTENT_TYPE.as_str()))
-        .and(warp::body::bytes()) // LogBatch payload
+        .and(warp::body::json()) // LogBatch payload
         .and(add(storage))
         .and(add(api_keys))
-        .and_then(|host, app, level, key, content_type, batch, db, keys| {
-            submit(host, app, level, key, content_type, batch, db, keys).map(error_to_reply)
+        .and_then(|host, app, level, key, batch, db, keys| {
+            submit(host, app, level, key, batch, db, keys).map(error_to_reply)
         })
 }
 
@@ -204,13 +173,10 @@ where
         .and(warp::get())
         .and(warp::path::end())
         .and(warp::header(API_KEY_HEADER))
-        .and(warp::header(header::ACCEPT.as_str()))
         .and(warp::query())
         .and(add(storage))
         .and(add(api_keys))
-        .and_then(|key, accept, params, db, keys| {
-            query(key, accept, params, db, keys).map(error_to_reply)
-        })
+        .and_then(|key, params, db, keys| query(key, params, db, keys).map(error_to_reply))
 }
 
 pub fn create_detail_endpoint<S>(
@@ -227,11 +193,10 @@ where
         .and(warp::path::param()) // Level
         .and(warp::path::end())
         .and(warp::header(API_KEY_HEADER))
-        .and(warp::header(header::ACCEPT.as_str()))
         .and(add(storage))
         .and(add(api_keys))
-        .and_then(|host, app, level, key, accept, db, keys| {
-            detail(host, app, level, key, accept, db, keys).map(error_to_reply)
+        .and_then(|host, app, level, key, db, keys| {
+            detail(host, app, level, key, db, keys).map(error_to_reply)
         })
 }
 
@@ -249,8 +214,7 @@ where
         .and(warp::get())
         .and(warp::path::end())
         .and(warp::header(API_KEY_HEADER))
-        .and(warp::header(header::ACCEPT.as_str()))
         .and(add(storage))
         .and(add(api_keys))
-        .and_then(|key, accept, db, keys| info(key, accept, db, keys).map(error_to_reply))
+        .and_then(|key, db, keys| info(key, db, keys).map(error_to_reply))
 }

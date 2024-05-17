@@ -51,7 +51,7 @@ impl CacheLimit {
     fn should_send(
         &self,
         level: log::Level,
-        batch: &collections::BTreeMap<ulid::Ulid, LogData>,
+        batch: &collections::BTreeMap<uuid::Uuid, LogData>,
     ) -> bool {
         batch.len() >= self.get_limit(level)
     }
@@ -104,7 +104,6 @@ mod tests {
     use super::*;
     #[test]
     fn test_cache_limit() {
-        let mut gen = ulid::Generator::new();
         let log_data = LogData {
             message: "abc".to_string(),
             code_module: None,
@@ -115,27 +114,27 @@ mod tests {
 
         let batch_1 = iter::repeat(log_data.clone())
             .take(1)
-            .map(|ld| (gen.generate().unwrap(), ld))
+            .map(|ld| (uuid::Uuid::now_v7(), ld))
             .collect::<collections::BTreeMap<_, _>>();
         let batch_5 = iter::repeat(log_data.clone())
             .take(5)
-            .map(|ld| (gen.generate().unwrap(), ld))
+            .map(|ld| (uuid::Uuid::now_v7(), ld))
             .collect::<collections::BTreeMap<_, _>>();
         let batch_9 = iter::repeat(log_data.clone())
             .take(9)
-            .map(|ld| (gen.generate().unwrap(), ld))
+            .map(|ld| (uuid::Uuid::now_v7(), ld))
             .collect::<collections::BTreeMap<_, _>>();
         let batch_10 = iter::repeat(log_data.clone())
             .take(10)
-            .map(|ld| (gen.generate().unwrap(), ld))
+            .map(|ld| (uuid::Uuid::now_v7(), ld))
             .collect::<collections::BTreeMap<_, _>>();
         let batch_99 = iter::repeat(log_data.clone())
             .take(99)
-            .map(|ld| (gen.generate().unwrap(), ld))
+            .map(|ld| (uuid::Uuid::now_v7(), ld))
             .collect::<collections::BTreeMap<_, _>>();
         let batch_100 = iter::repeat(log_data)
             .take(100)
-            .map(|ld| (gen.generate().unwrap(), ld))
+            .map(|ld| (uuid::Uuid::now_v7(), ld))
             .collect::<collections::BTreeMap<_, _>>();
 
         let limit = CacheLimit::default();

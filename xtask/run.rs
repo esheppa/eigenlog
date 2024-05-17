@@ -22,7 +22,7 @@ fn ci() -> Result<(), String> {
     setup()?;
     check_fmt()?;
 
-    for always in ["json", "bincode"]
+    for always in []
         .into_iter()
         .powerset()
         .into_iter()
@@ -30,7 +30,7 @@ fn ci() -> Result<(), String> {
     {
         check_superset_wasm_with_features(&["wasm-client", "wasm-subscriber"], &always)?;
     }
-    for always in ["json", "bincode"]
+    for always in []
         .into_iter()
         .powerset()
         .into_iter()
