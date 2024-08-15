@@ -5,12 +5,6 @@ use super::*;
 #[cfg(feature = "sled")]
 mod sled_impl;
 
-#[cfg(feature = "nebari")]
-mod nebari_impl;
-
-#[cfg(feature = "rusqlite")]
-mod rusqlite_impl;
-
 #[async_trait]
 pub trait Storage: Clone + Send + Sync {
     async fn submit(&self, host: &Host, app: &App, level: Level, log_batch: LogBatch)

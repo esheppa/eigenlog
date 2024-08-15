@@ -1,4 +1,5 @@
 use super::*;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use futures_channel::mpsc;
 use futures_util::{future, StreamExt, TryFutureExt};
 use reqwest::header;
@@ -75,7 +76,12 @@ where
 
         for (level, logs) in cache {
             for (id, data) in logs {
-                eprintln!("[{} {}]: {}", id.datetime(), level, data.message)
+                eprintln!(
+                    "[{} {}]: {}",
+                    DateTime::<Utc>::from(id.datetime()),
+                    level,
+                    data.message
+                )
             }
         }
     }

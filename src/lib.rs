@@ -82,7 +82,7 @@ impl str::FromStr for SerializationFormat {
         match s {
             #[cfg(feature = "json")]
             APPLICATION_JSON => Ok(SerializationFormat::Json),
-            #[cfg(feautre = "bincode")]
+            #[cfg(feature = "bincode")]
             OCTET_STREAM => Ok(SerializationFormat::Bincode),
             otherwise => Err(Error::UnsupportedSerializationMimeType(
                 otherwise.to_string(),

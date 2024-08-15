@@ -1,5 +1,6 @@
 // This demonstrates the use of a rust client for the log server
 
+use chrono::{DateTime, Utc};
 use eigenlog::{self, storage::Storage, ParseLogTreeInfoError};
 use std::{
     io::{self, Write},
@@ -346,7 +347,7 @@ fn data_to_table(data: Vec<eigenlog::QueryResponse>) -> comfy_table::Table {
             row.app.to_string(),
             row.level.to_string(),
             row.id.to_string(),
-            row.id.datetime().to_string(),
+            DateTime::<Utc>::from(row.id.datetime()).to_string(),
             row.data.message.to_string(),
         ]);
     }

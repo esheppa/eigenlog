@@ -1,6 +1,7 @@
 use super::*;
 use crate::*;
 use bincode_crate as bincode;
+use chrono::{DateTime, Utc};
 
 #[async_trait]
 impl Storage for sled::Db {
@@ -38,14 +39,14 @@ impl Storage for sled::Db {
 
         let start = params
             .start_timestamp
-            .map(ulid::Ulid::from_datetime)
+            .map(|ts| ulid::Ulid::from_datetime(ts.into()))
             .map(ulid_floor)
             .unwrap_or(u128::MIN)
             .to_be_bytes();
 
         let end = params
             .end_timestamp
-            .map(ulid::Ulid::from_datetime)
+            .map(|ts| ulid::Ulid::from_datetime(ts.into()))
             .map(ulid_ceiling)
             .unwrap_or(u128::MAX)
             .to_be_bytes();
@@ -117,7 +118,7 @@ impl Storage for sled::Db {
             let (key, _) = row?;
             let ulid_key = ulid::Ulid::from(slice_be_to_u128(&key)?);
             row_detail
-                .entry(ulid_key.datetime().naive_local().date())
+                .entry(DateTime::<Utc>::from(ulid_key.datetime()).date_naive())
                 .and_modify(|c| *c += 1)
                 .or_insert(1);
         }
@@ -196,7 +197,7 @@ fn tree_name_to_info(db: &sled::Db, name: sled::IVec) -> crate::Result<Option<Lo
         host: parsed.host,
         app: parsed.app,
         level: parsed.level,
-        min: first,
-        max: last,
+        min: first.into(),
+        max: last.into(),
     }))
 }
